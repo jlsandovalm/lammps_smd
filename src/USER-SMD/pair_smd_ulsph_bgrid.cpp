@@ -183,7 +183,6 @@ void PairULSPHBG::CreateGrid() {
 void PairULSPHBG::PointsToGrid() {
 	double **x = atom->x;
 	double **v = atom->v;
-	double **f = atom->f;
 	double **vest = atom->vest;
 	double *rmass = atom->rmass;
 	int *type = atom->type;
@@ -257,10 +256,6 @@ void PairULSPHBG::PointsToGrid() {
 						gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vest[i][0];
 						gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vest[i][1];
 						gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vest[i][2];
-
-						//gridnodes[jx][jy][jz].fx += wf * rmass[i] * f[i][0];
-						//gridnodes[jx][jy][jz].fy += wf * rmass[i] * f[i][1];
-						//gridnodes[jx][jy][jz].fz += wf * rmass[i] * f[i][2];
 					}
 
 				}
@@ -278,10 +273,6 @@ void PairULSPHBG::PointsToGrid() {
 					gridnodes[ix][iy][iz].vx /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vy /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vz /= gridnodes[ix][iy][iz].mass;
-
-					//gridnodes[ix][iy][iz].fx /= gridnodes[ix][iy][iz].mass;
-					//gridnodes[ix][iy][iz].fy /= gridnodes[ix][iy][iz].mass;
-					//gridnodes[ix][iy][iz].fz /= gridnodes[ix][iy][iz].mass;
 
 					gridnodes[ix][iy][iz].vestx /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vesty /= gridnodes[ix][iy][iz].mass;
@@ -309,8 +300,7 @@ void PairULSPHBG::PointsToGrid() {
  * 6) compute internal grid forces from particle stresses
  */
 
-void PairULSPHBG::DiscreteSolution() {
-	double **atom_data9 = atom->smd_data_9;
+void PairULSPHBG::ComputeVelocityGradient() {
 	int *type = atom->type;
 	double **x = atom->x;
 	int nlocal = atom->nlocal;
@@ -371,7 +361,7 @@ void PairULSPHBG::DiscreteSolution() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
+						vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
 						velocity_gradient += vel_grid * g.transpose();
 					}
 				}
@@ -573,8 +563,12 @@ void PairULSPHBG::UpdateDeformationGradient() {
 		F(2, 1) = smd_data_9[i][7];
 		F(2, 2) = smd_data_9[i][8];
 
+		//cout << "this is F befor update" << endl << F << endl;
+
 		Fincr = eye + update->dt * L[i];
 		F = Fincr * F;
+
+		//cout << "this is F" << endl << F << endl;
 
 		vfrac[i] *= Fincr.determinant();
 
@@ -644,21 +638,130 @@ void PairULSPHBG::compute(int eflag, int vflag) {
 					atom_data9[i][j] = 0.0;
 				}
 			}
+
+			atom_data9[i][0] = 1.0;
+			atom_data9[i][4] = 1.0;
+			atom_data9[i][8] = 1.0;
 		}
 	}
 
 	CreateGrid();
 
-	PointsToGrid();
-	DiscreteSolution();
-	AssembleStressTensor();
-	// -- forward communication now
-	comm->forward_comm_pair(this);
-	ComputeGridForces();
-	UpdateGridVelocities();
-	GridToPoints();
+	/*
+	 * USF scheme
+	 */
 
+	bool USF = true;
+
+	if (USF) {
+		PointsToGrid();
+		ComputeVelocityGradient();
+		UpdateDeformationGradient();
+		UpdateStress();
+		GetStress();
+		comm->forward_comm_pair(this);
+		ComputeGridForces();
+		UpdateGridVelocities();
+		GridToPoints();
+	} else {
+
+		/*
+		 * USL scheme
+		 */
+		PointsToGrid();
+		GetStress();
+		comm->forward_comm_pair(this);
+		ComputeGridForces();
+		UpdateGridVelocities();
+		ComputeVelocityGradient(); // using updated grid velocities
+		UpdateDeformationGradient();
+		UpdateStress();
+		GridToPoints();
+	}
 	DestroyGrid();
+
+}
+
+void PairULSPHBG::UpdateStress() {
+	double **tlsph_stress = atom->smd_stress;
+	double *de = atom->de;
+	double *vfrac = atom->vfrac;
+	int *type = atom->type;
+	Matrix3d D, eye, d_dev, stressRate, oldStress, newStress;
+	double d_iso;
+	int i, itype;
+	int nlocal = atom->nlocal;
+	eye.setIdentity();
+
+	dtCFL = BIG;
+
+	for (i = 0; i < nlocal; i++) {
+		itype = type[i];
+		if (setflag[itype][itype] == 1) {
+
+			oldStress(0, 0) = tlsph_stress[i][0];
+			oldStress(0, 1) = tlsph_stress[i][1];
+			oldStress(0, 2) = tlsph_stress[i][2];
+			oldStress(1, 1) = tlsph_stress[i][3];
+			oldStress(1, 2) = tlsph_stress[i][4];
+			oldStress(2, 2) = tlsph_stress[i][5];
+			oldStress(1, 0) = oldStress(0, 1);
+			oldStress(2, 0) = oldStress(0, 2);
+			oldStress(2, 1) = oldStress(1, 2);
+
+			D = 0.5 * (L[i] + L[i].transpose());
+			d_dev = Deviator(D);
+			d_iso = D.trace();
+
+			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
+			newStress = oldStress + update->dt * stressRate;
+
+			tlsph_stress[i][0] = newStress(0, 0);
+			tlsph_stress[i][1] = newStress(0, 1);
+			tlsph_stress[i][2] = newStress(0, 2);
+			tlsph_stress[i][3] = newStress(1, 1);
+			tlsph_stress[i][4] = newStress(1, 2);
+			tlsph_stress[i][5] = newStress(2, 2);
+
+			c0[i] = Lookup[REFERENCE_SOUNDSPEED][itype];
+
+			/*
+			 * stable timestep based on speed-of-sound
+			 */
+
+			dtCFL = MIN(cellsize / c0[i], dtCFL);
+
+			/*
+			 * potential energy
+			 */
+
+			de[i] += vfrac[i] * (newStress.cwiseProduct(D)).sum();
+
+		}
+	}
+
+}
+
+void PairULSPHBG::GetStress() {
+	double **tlsph_stress = atom->smd_stress;
+	int *type = atom->type;
+	int i, itype;
+	int nlocal = atom->nlocal;
+
+	for (i = 0; i < nlocal; i++) {
+		itype = type[i];
+		if (setflag[itype][itype] == 1) {
+			stressTensor[i](0, 0) = tlsph_stress[i][0];
+			stressTensor[i](0, 1) = tlsph_stress[i][1];
+			stressTensor[i](0, 2) = tlsph_stress[i][2];
+			stressTensor[i](1, 1) = tlsph_stress[i][3];
+			stressTensor[i](1, 2) = tlsph_stress[i][4];
+			stressTensor[i](2, 2) = tlsph_stress[i][5];
+			stressTensor[i](1, 0) = stressTensor[i](0, 1);
+			stressTensor[i](2, 0) = stressTensor[i](0, 2);
+			stressTensor[i](2, 1) = stressTensor[i](1, 2);
+		}
+	}
 
 }
 
@@ -667,7 +770,6 @@ void PairULSPHBG::compute(int eflag, int vflag) {
  viscosity contributions.
  ------------------------------------------------------------------------- */
 void PairULSPHBG::AssembleStressTensor() {
-	double **atom_data9 = atom->smd_data_9;
 	double *vfrac = atom->vfrac;
 	double *rmass = atom->rmass;
 	double *eff_plastic_strain = atom->eff_plastic_strain;
@@ -687,7 +789,7 @@ void PairULSPHBG::AssembleStressTensor() {
 	double G_eff = 0.0; // effective shear modulus
 	double K_eff; // effective bulk modulus
 	double M, p_wave_speed;
-	double rho, effectiveViscosity, J;
+	double rho, effectiveViscosity;
 	Matrix3d deltaStressDev;
 
 	dtCFL = 1.0e22;
@@ -704,11 +806,6 @@ void PairULSPHBG::AssembleStressTensor() {
 			K_eff = 0.0;
 			G_eff = 0.0;
 			D = 0.5 * (L[i] + L[i].transpose());
-
-			//vfrac[i] += vfrac[i] * update->dt * D.trace(); // update volume
-			J = (eye + update->dt * L[i]).determinant();
-			vfrac[i] *= J;
-
 			vol = vfrac[i];
 			rho = rmass[i] / vol;
 

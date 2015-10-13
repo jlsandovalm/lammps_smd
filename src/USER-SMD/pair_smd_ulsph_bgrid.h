@@ -65,9 +65,11 @@ public:
 	void DestroyGrid();
 
 	void PointsToGrid();
-	void DiscreteSolution();
+	void ComputeVelocityGradient();
 	void ComputeGridForces();
 	void GridToPoints();
+	void UpdateStress();
+	void GetStress();
 
 protected:
 

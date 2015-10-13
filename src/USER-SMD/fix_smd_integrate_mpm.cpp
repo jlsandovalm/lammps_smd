@@ -53,12 +53,10 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 		Fix(lmp, narg, arg) {
 
 	if ((atom->e_flag != 1) || (atom->vfrac_flag != 1))
-		error->all(FLERR,
-				"fix smd/integrate_mpm command requires atom_style with both energy and volume");
+		error->all(FLERR, "fix smd/integrate_mpm command requires atom_style with both energy and volume");
 
 	if (narg < 3)
-		error->all(FLERR,
-				"Illegal number of arguments for fix smd/integrate_mpm command");
+		error->all(FLERR, "Illegal number of arguments for fix smd/integrate_mpm command");
 
 	adjust_radius_flag = false;
 	vlimit = -1.0;
@@ -66,8 +64,7 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 	int iarg = 3;
 
 	if (comm->me == 0) {
-		printf(
-				"\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
+		printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 		printf("fix smd/integrate_mpm is active for group: %s \n", arg[1]);
 	}
 	while (true) {
@@ -88,8 +85,7 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 			}
 		} else {
 			char msg[128];
-			sprintf(msg, "Illegal keyword for smd/integrate_mpm: %s\n",
-					arg[iarg]);
+			sprintf(msg, "Illegal keyword for smd/integrate_mpm: %s\n", arg[iarg]);
 			error->all(FLERR, msg);
 		}
 
@@ -98,8 +94,7 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 	}
 
 	if (comm->me == 0) {
-		printf(
-				">>========>>========>>========>>========>>========>>========>>========>>========\n\n");
+		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n\n");
 	}
 
 	// set comm sizes needed by this fix
@@ -130,34 +125,6 @@ void FixSMDIntegrateMpm::init() {
  ------------------------------------------------------------------------- */
 
 void FixSMDIntegrateMpm::initial_integrate(int vflag) {
-	double **v = atom->v;
-	double **f = atom->f;
-	double **vest = atom->vest;
-	double *rmass = atom->rmass;
-
-	int *mask = atom->mask;
-	int nlocal = atom->nlocal;
-	double dtfm;
-	int i;
-
-	if (igroup == atom->firstgroup)
-		nlocal = atom->nfirst;
-
-//	for (i = 0; i < nlocal; i++) {
-//		if (mask[i] & groupbit) {
-//			dtfm = dtv / rmass[i];
-//
-//			v[i][0] += dtfm * f[i][0];
-//			v[i][1] += dtfm * f[i][1];
-//			v[i][2] += dtfm * f[i][2];
-//
-//			// extrapolate velocity from half- to full-step
-//			vest[i][0] = v[i][0] + dtfm * f[i][0];
-//			vest[i][1] = v[i][1] + dtfm * f[i][1];
-//			vest[i][2] = v[i][2] + dtfm * f[i][2];
-//
-//		}
-//	}
 
 }
 
@@ -176,18 +143,14 @@ void FixSMDIntegrateMpm::final_integrate() {
 	double vsq, scale;
 	int i, itmp;
 
-	Vector3d *particleVelocities = (Vector3d *) force->pair->extract(
-			"smd/mpm/particleVelocities_ptr", itmp);
+	Vector3d *particleVelocities = (Vector3d *) force->pair->extract("smd/mpm/particleVelocities_ptr", itmp);
 	if (particleVelocities == NULL) {
-		error->one(FLERR,
-				"fix smd/integrate_mpm failed to accesss particleVelocities array");
+		error->one(FLERR, "fix smd/integrate_mpm failed to accesss particleVelocities array");
 	}
 
-	Vector3d *particleAccelerations = (Vector3d *) force->pair->extract(
-			"smd/mpm/particleAccelerations_ptr", itmp);
+	Vector3d *particleAccelerations = (Vector3d *) force->pair->extract("smd/mpm/particleAccelerations_ptr", itmp);
 	if (particleAccelerations == NULL) {
-		error->one(FLERR,
-				"fix smd/integrate_mpm failed to accesss particleAccelerations array");
+		error->one(FLERR, "fix smd/integrate_mpm failed to accesss particleAccelerations array");
 	}
 
 	if (igroup == atom->firstgroup)
@@ -214,9 +177,15 @@ void FixSMDIntegrateMpm::final_integrate() {
 			x[i][1] += dtv * particleVelocities[i](1);
 			x[i][2] += dtv * particleVelocities[i](2);
 
-			v[i][0] += dtv * particleAccelerations[i](0);
+			v[i][0] += dtv * particleAccelerations[i](0); // pure FLIP
 			v[i][1] += dtv * particleAccelerations[i](1);
 			v[i][2] += dtv * particleAccelerations[i](2);
+
+			// mixed FLIP-PIC
+//			double alpha = 0.99;
+//			v[i][0] = (1. - alpha) * particleVelocities[i](0) + alpha * (v[i][0] + dtv * particleAccelerations[i](0));
+//			v[i][1] = (1. - alpha) * particleVelocities[i](1) + alpha * (v[i][1] + dtv * particleAccelerations[i](1));
+//			v[i][2] = (1. - alpha) * particleVelocities[i](2) + alpha * (v[i][2] + dtv * particleAccelerations[i](2));
 
 			vest[i][0] = v[i][0] + 0.0 * dtv * particleAccelerations[i](0);
 			vest[i][1] = v[i][1] + 0.0 * dtv * particleAccelerations[i](1);
