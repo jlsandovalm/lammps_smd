@@ -80,6 +80,7 @@ pair_style      hybrid/overlay smd/tri_surface 1.0 &
                 smd/ulsph_bgrd ${mpm_cellsize}
 pair_coeff      1 1 smd/ulsph_bgrd *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
                               *EOS_TAIT 2 &
+                              *VISCOSITY_NEWTON 1.0e-5 &
 	                      *END
 pair_coeff      2 2 none
 pair_coeff      1 2 smd/tri_surface ${contact_stiffness}
@@ -89,7 +90,7 @@ pair_coeff      1 2 smd/tri_surface ${contact_stiffness}
 # TIME INTEGRATION
 ####################################################################################################
 fix             force_fix surface setforce 0 0 0
-fix             dtfix all smd/adjust_dt 0.7 # dynamically adjust time increment every step
+fix             dtfix all smd/adjust_dt 0.3 # dynamically adjust time increment every step
 fix             integration_fix water smd/integrate_mpm
 
 ####################################################################################################

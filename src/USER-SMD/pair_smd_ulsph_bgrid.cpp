@@ -56,7 +56,7 @@ using namespace Eigen;
 
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
-#define BIG 1.0e22;
+#define BIG 1.0e22
 
 PairULSPHBG::PairULSPHBG(LAMMPS *lmp) :
 		Pair(lmp) {
@@ -163,6 +163,10 @@ void PairULSPHBG::CreateGrid() {
 				gridnodes[ix][iy][iz].fx = 0.0;
 				gridnodes[ix][iy][iz].fy = 0.0;
 				gridnodes[ix][iy][iz].fz = 0.0;
+
+				gridnodes[ix][iy][iz].vestx = 0.0;
+				gridnodes[ix][iy][iz].vesty = 0.0;
+				gridnodes[ix][iy][iz].vestz = 0.0;
 			}
 		}
 	}
@@ -179,6 +183,8 @@ void PairULSPHBG::CreateGrid() {
 void PairULSPHBG::PointsToGrid() {
 	double **x = atom->x;
 	double **v = atom->v;
+	double **f = atom->f;
+	double **vest = atom->vest;
 	double *rmass = atom->rmass;
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
@@ -247,11 +253,19 @@ void PairULSPHBG::PointsToGrid() {
 						gridnodes[jx][jy][jz].vx += wf * rmass[i] * v[i][0];
 						gridnodes[jx][jy][jz].vy += wf * rmass[i] * v[i][1];
 						gridnodes[jx][jy][jz].vz += wf * rmass[i] * v[i][2];
+
+						gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vest[i][0];
+						gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vest[i][1];
+						gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vest[i][2];
+
+						//gridnodes[jx][jy][jz].fx += wf * rmass[i] * f[i][0];
+						//gridnodes[jx][jy][jz].fy += wf * rmass[i] * f[i][1];
+						//gridnodes[jx][jy][jz].fz += wf * rmass[i] * f[i][2];
 					}
 
 				}
 			}
-		}
+		} // end if setflag[itype][itype]
 	}
 
 	// normalize grid data
@@ -264,6 +278,14 @@ void PairULSPHBG::PointsToGrid() {
 					gridnodes[ix][iy][iz].vx /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vy /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vz /= gridnodes[ix][iy][iz].mass;
+
+					//gridnodes[ix][iy][iz].fx /= gridnodes[ix][iy][iz].mass;
+					//gridnodes[ix][iy][iz].fy /= gridnodes[ix][iy][iz].mass;
+					//gridnodes[ix][iy][iz].fz /= gridnodes[ix][iy][iz].mass;
+
+					gridnodes[ix][iy][iz].vestx /= gridnodes[ix][iy][iz].mass;
+					gridnodes[ix][iy][iz].vesty /= gridnodes[ix][iy][iz].mass;
+					gridnodes[ix][iy][iz].vestz /= gridnodes[ix][iy][iz].mass;
 
 					ekin_grid += 0.5 * gridnodes[ix][iy][iz].mass
 							* (gridnodes[ix][iy][iz].vx * gridnodes[ix][iy][iz].vx
@@ -349,24 +371,12 @@ void PairULSPHBG::DiscreteSolution() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
+						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
 						velocity_gradient += vel_grid * g.transpose();
 					}
 				}
 			}
 			L[i] = velocity_gradient;
-
-			/*
-			 * accumulate strain increments
-			 * we abuse the atom array "atom_data_9" for this purpose, which was originally designed to hold the deformation gradient.
-			 */
-			D = update->dt * 0.5 * (L[i] + L[i].transpose());
-			atom_data9[i][0] += D(0, 0); // xx
-			atom_data9[i][1] += D(1, 1); // yy
-			atom_data9[i][2] += D(2, 2); // zz
-			atom_data9[i][3] += D(0, 1); // xy
-			atom_data9[i][4] += D(0, 2); // xz
-			atom_data9[i][5] += D(1, 2); // yz
 
 		} // end if (setflag[itype][itype])
 	}
@@ -375,6 +385,7 @@ void PairULSPHBG::DiscreteSolution() {
 
 void PairULSPHBG::ComputeGridForces() {
 	double **x = atom->x;
+	double **f = atom->f;
 	double *vfrac = atom->vfrac;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
@@ -432,7 +443,11 @@ void PairULSPHBG::ComputeGridForces() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						force = -vfrac[i] * stressTensor[i] * g;
+						force = -vfrac[i] * stressTensor[i] * g; // this is the force from the divergence of the stress field
+
+						force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
+						force(1) += wf * f[i][1];
+						force(2) += wf * f[i][2];
 
 						gridnodes[jx][jy][jz].fx += force(0);
 						gridnodes[jx][jy][jz].fy += force(1);
@@ -440,7 +455,7 @@ void PairULSPHBG::ComputeGridForces() {
 					}
 				}
 			}
-		}
+		} // end if (setflag[itype][itype])
 	}
 }
 
@@ -456,11 +471,11 @@ void PairULSPHBG::UpdateGridVelocities() {
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
-				if (gridnodes[ix][iy][iz].mass > 1.0e-8) {
+				if (gridnodes[ix][iy][iz].mass > 1.0e-12) {
 					dtm = update->dt / gridnodes[ix][iy][iz].mass;
-					gridnodes[ix][iy][iz].vx = gridnodes[ix][iy][iz].vx + dtm * gridnodes[ix][iy][iz].fx;
-					gridnodes[ix][iy][iz].vy = gridnodes[ix][iy][iz].vy + dtm * gridnodes[ix][iy][iz].fy;
-					gridnodes[ix][iy][iz].vz = gridnodes[ix][iy][iz].vz + dtm * gridnodes[ix][iy][iz].fz;
+					gridnodes[ix][iy][iz].vx += dtm * gridnodes[ix][iy][iz].fx;
+					gridnodes[ix][iy][iz].vy += dtm * gridnodes[ix][iy][iz].fy;
+					gridnodes[ix][iy][iz].vz += dtm * gridnodes[ix][iy][iz].fz;
 				}
 			}
 		}
@@ -527,38 +542,7 @@ void PairULSPHBG::GridToPoints() {
 					}
 				}
 			}
-		}
-	}
-
-}
-
-/*
- *
- */
-
-void PairULSPHBG::UpdateStrainStress() {
-
-	double *rmass = atom->rmass;
-	double *vfrac = atom->vfrac;
-	int *type = atom->type;
-	int nlocal = atom->nlocal;
-	int i, itype;
-	double J, pressure, rho;
-	Matrix3d eye;
-	eye.setIdentity();
-
-	// compute deformation gradient
-	for (i = 0; i < nlocal; i++) {
-
-		J = (eye + update->dt * L[i]).determinant();
-		vfrac[i] *= J;
-
-		rho = rmass[i] / vfrac[i];
-		itype = type[i];
-		TaitEOS_density(Lookup[EOS_TAIT_EXPONENT][itype], Lookup[REFERENCE_SOUNDSPEED][itype], Lookup[REFERENCE_DENSITY][itype],
-				rho, pressure, c0[i]);
-		stressTensor[i] = -pressure * eye;
-
+		} // end if (setflag[itype][itype])
 	}
 
 }
@@ -667,9 +651,8 @@ void PairULSPHBG::compute(int eflag, int vflag) {
 
 	PointsToGrid();
 	DiscreteSolution();
-	//UpdateStrainStress();
 	AssembleStressTensor();
-	// -- forward communcation now
+	// -- forward communication now
 	comm->forward_comm_pair(this);
 	ComputeGridForces();
 	UpdateGridVelocities();
@@ -684,6 +667,7 @@ void PairULSPHBG::compute(int eflag, int vflag) {
  viscosity contributions.
  ------------------------------------------------------------------------- */
 void PairULSPHBG::AssembleStressTensor() {
+	double **atom_data9 = atom->smd_data_9;
 	double *vfrac = atom->vfrac;
 	double *rmass = atom->rmass;
 	double *eff_plastic_strain = atom->eff_plastic_strain;
@@ -721,11 +705,12 @@ void PairULSPHBG::AssembleStressTensor() {
 			G_eff = 0.0;
 			D = 0.5 * (L[i] + L[i].transpose());
 
+			//vfrac[i] += vfrac[i] * update->dt * D.trace(); // update volume
 			J = (eye + update->dt * L[i]).determinant();
-			vfrac[i] += vfrac[i] * update->dt * D.trace();
+			vfrac[i] *= J;
 
 			vol = vfrac[i];
-			rho = rmass[i] / vfrac[i];
+			rho = rmass[i] / vol;
 
 			switch (eos[itype]) {
 			default:
@@ -855,7 +840,7 @@ void PairULSPHBG::AssembleStressTensor() {
 			 * elastic energy rate
 			 */
 
-			de[i] = 0.5 * vfrac[i] * (stressTensor[i].cwiseProduct(D)).sum();
+			de[i] += vol * (stressTensor[i].cwiseProduct(D)).sum();
 
 		}
 		// end if (setflag[itype][itype] == 1)
@@ -884,7 +869,7 @@ void PairULSPHBG::allocate() {
 
 	memory->create(Lookup, MAX_KEY_VALUE, n + 1, "pair:LookupTable");
 
-	memory->create(cutsq, n + 1, n + 1, "pair:cutsq");		// always needs to be allocated, even with granular neighborlist
+	memory->create(cutsq, n + 1, n + 1, "pair:cutsq"); // always needs to be allocated, even with granular neighborlist
 
 	/*
 	 * initialize arrays to default values

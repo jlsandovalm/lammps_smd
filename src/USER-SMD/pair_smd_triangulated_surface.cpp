@@ -274,7 +274,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 							v[particle][2] = vnew(2);
 						}
 
-						printf("moving particle on top of triangle\n");
+						//printf("moving particle on top of triangle\n");
 						x[particle][0] = cp(0) + touch_distance * normal(0);
 						x[particle][1] = cp(1) + touch_distance * normal(1);
 						x[particle][2] = cp(2) + touch_distance * normal(2);

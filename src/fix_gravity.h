@@ -33,7 +33,7 @@ class FixGravity : public Fix {
   int setmask();
   void init();
   void setup(int);
-  virtual void post_force(int);
+  virtual void pre_force(int);
   virtual void post_force_respa(int, int, int);
   double compute_scalar();
 

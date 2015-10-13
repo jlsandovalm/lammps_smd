@@ -1,12 +1,15 @@
-# Water bubble test.
+# MPM -- Two colliding discs
 # 
 
-variable        rho equal 1 # mass density of water dropt
+variable        rho equal 1 # mass density
 variable        h equal 0.08 # characteristic smoothing length, used here only for determining 
-variable        K equal 10.0 # bulk modulus of the fluid
+variable        E equal 1.0 # bulk modulus of the fluid
+variable        nu equal 0.2
 variable        hg equal 0 # hourglass control coefficient, must be zero for fluids.
-variable        art_visc equal 0.5 # We can set the artificial viscosity to zero if physical visc. is present.
+variable        art_visc equal 0 # We can set the artificial viscosity to zero if physical visc. is present.
 # ----
+variable        K equal ${E}/(3*(1.-2*${nu}))
+variable        G equal ${E}/(2*(1.+${nu}))
 variable        c0 equal sqrt(${K}/${rho}) # speed of sound
 variable        dt equal 0.125*${h}/${c0} # CFL estimate for the stable timestep
 print           "sound speed is ${c0}, CFL timestep is approximately ${dt}"
@@ -18,33 +21,39 @@ boundary        s s p
 atom_style      smd
 comm_style      brick
 neighbor        ${skin} bin
-neigh_modify    every 10 delay 0 check yes
-
+neigh_modify    every 1 delay 0 check no
+comm_modify     vel yes
 newton          off
 
-region          box block 0 10 0 10 -0.1 0.1 units box
-create_box      1 box
-region          sphere sphere 5 5 0 2.5 units box
-variable        l0 equal 0.2
+region          box block 0 1 0 1 -0.01 0.01 units box
+create_box      2 box
+region          disc1 sphere 0.15 0.15 0 0.14 units box
+region          disc2 sphere 0.45  0.45  0 0.14 units box
+variable        l0 equal 0.14/6
 lattice         sq ${l0}
-create_atoms    1 region sphere
+create_atoms    1 region disc1
+create_atoms    2 region disc2
+group           disc1 region disc1
+group           disc2 region disc2
 
+variable        cr equal 2*${l0}
 variable        vol_one equal ${l0}^2
 set             group all volume ${vol_one}
 set             group all smd_mass_density ${rho}
-variable        h equal 2.4*${l0}
-set             group all diameter ${h}
+set             group all diameter ${cr}
+set             group all smd_contact_radius ${cr}
 
-#variable        comm_cutoff equal 8.0*${h}
-comm_modify     vel yes #cutoff ${comm_cutoff}
-
-
-# this is an updated-Lagrangian pair style with Tait EOS and physical viscosity.
-pair_style      smd/ulsph_bgrd ${l0}
+pair_style      hybrid/overlay  smd/hertz 1.0 smd/ulsph_bgrd ${l0}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
-pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+pair_coeff      1 1 smd/ulsph_bgrd *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
+                *STRENGTH_LINEAR ${G} &
 	        *END
+pair_coeff      2 2 smd/ulsph_bgrd *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+		*EOS_LINEAR &
+                *STRENGTH_LINEAR ${G} &
+	        *END
+pair_coeff      1 2 smd/hertz ${E}
 
 compute         rho all smd/rho
 compute         nn all smd/ulsph_num_neighs
@@ -54,13 +63,15 @@ compute         alleint all reduce sum c_eint
 compute         S all smd/ulsph_stress # stress tensor: xx, yy, zz, xy, xz, yz components
 compute         D all smd/ulsph_strain_rate
 variable        etot equal ke+c_alleint+pe
+variable        ekin equal ke
+variable        epot equal pe
+variable        eint equal c_alleint
 variable        amz equal angmom(all,z) # angular momentum
 
 
 # time integration
 timestep        ${dt} # set an initial estimate for the zero-th timestep
-fix             dtfix all smd/adjust_dt 0.1
-#fix             gfix  all gravity 0.01 vector 0 1 0
+fix             dtfix all smd/adjust_dt 0.5
 fix             integration_fix all smd/integrate_mpm # actual integration for equations of motion
 
 variable        dumpFreq equal 10
@@ -71,27 +82,11 @@ dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
 
 dump_modify     dump_id first yes
 
-thermo          1
+thermo          100
 thermo_style    custom step ke pe v_etot c_alleint dt v_amz
+fix extra all print 1 "${ekin} ${epot} ${eint} ${etot}" file energy.dat screen no
 
-# Apply initial velocity conditions.
-# Select either case 1 / 2 / 3 by uncommenting lines below.
-#
-# Case 1: ellipsoidal deformation: angular momentum should stay zero if kernel gradient correction
-# is used, and drift away from zero if no kernel gradient is used
-# velocity        all ramp vx  -0.2 0.2 y -1.0 1.0 units box
-# velocity        all ramp vy  -0.2 0.2 x  1.0 -1.0 units box
-#
-# Case 2: rotation around center of mass:  angular momentum should stay constant if kernel gradient correction
-# is used, and drift if no kernel gradient is used
-
-#velocity        all ramp vy    -1 1 y -1.0 1.0 units box
-#
-# Case 3: make the drop of water hit a rigid wall. Angular momentum is never conserved.
-#run            1000
-#velocity       all set 0 -0.2 0 units box
-#fix            23 all setforce 0 0 0 
-velocity        all ramp vx -0.1 0.1 x 0 10 units box
-#fix             ywall all wall/reflect ylo 1.0
+velocity        disc1 set 0.0707 0.0707 0 units box
+velocity        disc2 set -0.0707 -0.0707 0 units box
 
 run  1500

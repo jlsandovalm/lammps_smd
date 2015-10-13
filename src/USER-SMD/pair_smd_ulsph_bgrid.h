@@ -68,7 +68,6 @@ public:
 	void DiscreteSolution();
 	void ComputeGridForces();
 	void GridToPoints();
-	void UpdateStrainStress();
 
 protected:
 
@@ -130,6 +129,7 @@ private:
 	struct Gridnode {
 		double mass;
 		double vx, vy, vz;
+		double vestx, vesty, vestz;
 		double fx, fy, fz;
 	};
 

@@ -152,9 +152,9 @@ FixGravity::~FixGravity()
 int FixGravity::setmask()
 {
   int mask = 0;
-  mask |= POST_FORCE;
+  mask |= PRE_FORCE;
   mask |= THERMO_ENERGY;
-  mask |= POST_FORCE_RESPA;
+  mask |= PRE_FORCE_RESPA;
   return mask;
 }
 
@@ -242,7 +242,7 @@ void FixGravity::setup(int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void FixGravity::post_force(int vflag)
+void FixGravity::pre_force(int vflag)
 {
   // update gravity due to variables
 
