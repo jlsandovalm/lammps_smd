@@ -70,6 +70,9 @@ public:
 	void GridToPoints();
 	void UpdateStress();
 	void GetStress();
+	void AdvanceParticlePositionsVelocities();
+	void ComputeLpKp();
+	void PointsToGrid_RPIC();
 
 protected:
 
@@ -84,6 +87,7 @@ protected:
 	int *numNeighs;
 	double *c0;
 	Matrix3d *stressTensor, *L;
+	Matrix3d *Lp, *Kp;
 
 	double dtCFL;
 

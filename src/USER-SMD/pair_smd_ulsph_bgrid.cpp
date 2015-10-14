@@ -67,6 +67,8 @@ PairULSPHBG::PairULSPHBG(LAMMPS *lmp) :
 	c0_type = NULL;
 	c0 = NULL;
 	Lookup = NULL;
+	Lp = NULL;
+	Kp = NULL;
 
 	nmax = 0; // make sure no atom on this proc such that initial memory allocation is correct
 	stressTensor = L = NULL;
@@ -95,6 +97,8 @@ PairULSPHBG::~PairULSPHBG() {
 		delete[] numNeighs;
 		delete[] particleVelocities;
 		delete[] particleAccelerations;
+		delete[] Lp;
+		delete[] Kp;
 
 	}
 }
@@ -107,7 +111,6 @@ void PairULSPHBG::CreateGrid() {
 	int nlocal = atom->nlocal;
 	int nall = nlocal + atom->nghost;
 	int i, itype;
-	int ix, iy, iz;
 	double minx, miny, minz, maxx, maxy, maxz;
 	icellsize = 1.0 / cellsize; // inverse of cell size
 
@@ -153,24 +156,6 @@ void PairULSPHBG::CreateGrid() {
 
 	memory->create(gridnodes, grid_nx, grid_ny, grid_nz, "pair:gridnodes");
 
-	for (ix = 0; ix < grid_nx; ix++) {
-		for (iy = 0; iy < grid_ny; iy++) {
-			for (iz = 0; iz < grid_nz; iz++) {
-				gridnodes[ix][iy][iz].mass = 0.0;
-				gridnodes[ix][iy][iz].vx = 0.0;
-				gridnodes[ix][iy][iz].vy = 0.0;
-				gridnodes[ix][iy][iz].vz = 0.0;
-				gridnodes[ix][iy][iz].fx = 0.0;
-				gridnodes[ix][iy][iz].fy = 0.0;
-				gridnodes[ix][iy][iz].fz = 0.0;
-
-				gridnodes[ix][iy][iz].vestx = 0.0;
-				gridnodes[ix][iy][iz].vesty = 0.0;
-				gridnodes[ix][iy][iz].vestz = 0.0;
-			}
-		}
-	}
-
 }
 
 /*
@@ -195,6 +180,26 @@ void PairULSPHBG::PointsToGrid() {
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	double ekin_particles = 0.0;
 	double particle_mom_x = 0.0;
+
+	// clear the grid
+
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				gridnodes[ix][iy][iz].mass = 0.0;
+				gridnodes[ix][iy][iz].vx = 0.0;
+				gridnodes[ix][iy][iz].vy = 0.0;
+				gridnodes[ix][iy][iz].vz = 0.0;
+				gridnodes[ix][iy][iz].fx = 0.0;
+				gridnodes[ix][iy][iz].fy = 0.0;
+				gridnodes[ix][iy][iz].fz = 0.0;
+
+				gridnodes[ix][iy][iz].vestx = 0.0;
+				gridnodes[ix][iy][iz].vesty = 0.0;
+				gridnodes[ix][iy][iz].vestz = 0.0;
+			}
+		}
+	}
 
 	for (i = 0; i < nall; i++) {
 
@@ -256,6 +261,7 @@ void PairULSPHBG::PointsToGrid() {
 						gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vest[i][0];
 						gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vest[i][1];
 						gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vest[i][2];
+
 					}
 
 				}
@@ -291,6 +297,197 @@ void PairULSPHBG::PointsToGrid() {
 	//printf("particle x momentum is %f\n", particle_mom_x);
 	//printf("grid x momentum is %f\n", grid_mom_x);
 
+}
+
+void PairULSPHBG::PointsToGrid_RPIC() {
+	double **x = atom->x;
+	double **v = atom->v;
+	double **vest = atom->vest;
+	double *rmass = atom->rmass;
+	int *type = atom->type;
+	int nlocal = atom->nlocal;
+	int nall = nlocal + atom->nghost;
+	int i, itype;
+	int ix, iy, iz, jx, jy, jz;
+	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wf, wfx, wfy;
+	double delz_scaled, delz_scaled_abs, wfz;
+	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
+	Matrix3d KpLp;
+	Vector3d pos_particle, vel_RPIC, pos_grid, dx;
+
+	// clear the grid
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				gridnodes[ix][iy][iz].mass = 0.0;
+				gridnodes[ix][iy][iz].vx = 0.0;
+				gridnodes[ix][iy][iz].vy = 0.0;
+				gridnodes[ix][iy][iz].vz = 0.0;
+				gridnodes[ix][iy][iz].fx = 0.0;
+				gridnodes[ix][iy][iz].fy = 0.0;
+				gridnodes[ix][iy][iz].fz = 0.0;
+
+				gridnodes[ix][iy][iz].vestx = 0.0;
+				gridnodes[ix][iy][iz].vesty = 0.0;
+				gridnodes[ix][iy][iz].vestz = 0.0;
+			}
+		}
+	}
+
+	for (i = 0; i < nall; i++) {
+
+		itype = type[i];
+		if (setflag[itype][itype]) {
+
+			px_shifted = x[i][0] - min_ix * cellsize + 3 * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + 3 * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + 3 * cellsize;
+
+			ix = icellsize * px_shifted;
+			iy = icellsize * py_shifted;
+			iz = icellsize * pz_shifted;
+
+			KpLp = Kp[i].inverse() * Lp[i];
+			pos_particle << x[i][0], x[i][1], x[i][2];
+
+			for (jx = ix - 1; jx < ix + 3; jx++) {
+
+				// check that cell indices are within bounds
+				if ((jx < 0) || (jx >= grid_nx)) {
+					printf("x cell index %d is outside range 0 .. %d\n", jx, grid_nx);
+					error->one(FLERR, "");
+				}
+
+				delx_scaled = px_shifted * icellsize - 1.0 * jx;
+				delx_scaled_abs = fabs(delx_scaled);
+				wfx = DisneyKernel(delx_scaled_abs);
+
+				for (jy = iy - 1; jy < iy + 3; jy++) {
+
+					if ((jy < 0) || (jy >= grid_ny)) {
+						printf("y cell indey %d is outside range 0 .. %d\n", jy, grid_ny);
+						error->one(FLERR, "");
+					}
+
+					dely_scaled = py_shifted * icellsize - 1.0 * jy;
+					dely_scaled_abs = fabs(dely_scaled);
+					wfy = DisneyKernel(dely_scaled_abs);
+
+					for (jz = iz - 1; jz < iz + 3; jz++) {
+
+						if ((jz < 0) || (jz >= grid_nz)) {
+							printf("z cell index %d is outside range 0 .. %d\n", jz, grid_nz);
+							error->one(FLERR, "");
+						}
+
+						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
+						delz_scaled_abs = fabs(delz_scaled);
+						wfz = DisneyKernel(delz_scaled_abs);
+
+						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
+
+						dx << delx_scaled, dely_scaled, delz_scaled;
+						dx *= cellsize;
+						vel_RPIC = KpLp * dx;
+
+						gridnodes[jx][jy][jz].mass += wf * rmass[i];
+						gridnodes[jx][jy][jz].vx += wf * rmass[i] * (v[i][0] + vel_RPIC(0));
+						gridnodes[jx][jy][jz].vy += wf * rmass[i] * (v[i][1] + vel_RPIC(1));
+						gridnodes[jx][jy][jz].vz += wf * rmass[i] * (v[i][2] + vel_RPIC(2));
+
+						gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vest[i][0];
+						gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vest[i][1];
+						gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vest[i][2];
+
+					}
+
+				}
+			}
+		} // end if setflag[itype][itype]
+	}
+
+	// normalize grid data
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				if (gridnodes[ix][iy][iz].mass > 1.0e-12) {
+					gridnodes[ix][iy][iz].vx /= gridnodes[ix][iy][iz].mass;
+					gridnodes[ix][iy][iz].vy /= gridnodes[ix][iy][iz].mass;
+					gridnodes[ix][iy][iz].vz /= gridnodes[ix][iy][iz].mass;
+
+					gridnodes[ix][iy][iz].vestx /= gridnodes[ix][iy][iz].mass;
+					gridnodes[ix][iy][iz].vesty /= gridnodes[ix][iy][iz].mass;
+					gridnodes[ix][iy][iz].vestz /= gridnodes[ix][iy][iz].mass;
+				}
+			}
+		}
+	}
+}
+
+void PairULSPHBG::ComputeLpKp() {
+	int *type = atom->type;
+	double **x = atom->x;
+	double *rmass = atom->rmass;
+	int nlocal = atom->nlocal;
+	int nall = nlocal + atom->nghost;
+	int i, itype;
+
+	int ix, iy, iz, jx, jy, jz;
+	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
+	Vector3d pos_grid, pos_particle, vel_grid, dx;
+	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf;
+	double delz_scaled, delz_scaled_abs, wfz;
+
+	// compute deformation gradient
+	for (i = 0; i < nall; i++) {
+
+		itype = type[i];
+		if (setflag[itype][itype]) {
+
+			Lp[i].setZero();
+			Kp[i].setZero();
+			pos_particle << x[i][0], x[i][1], x[i][2];
+
+			px_shifted = x[i][0] - min_ix * cellsize + 3 * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + 3 * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + 3 * cellsize;
+
+			ix = icellsize * px_shifted;
+			iy = icellsize * py_shifted;
+			iz = icellsize * pz_shifted;
+
+			for (jx = ix - 1; jx < ix + 3; jx++) {
+
+				delx_scaled = px_shifted * icellsize - 1.0 * jx;
+				delx_scaled_abs = fabs(delx_scaled);
+				wfx = DisneyKernel(delx_scaled_abs);
+
+				for (jy = iy - 1; jy < iy + 3; jy++) {
+
+					dely_scaled = py_shifted * icellsize - 1.0 * jy;
+					dely_scaled_abs = fabs(dely_scaled);
+					wfy = DisneyKernel(dely_scaled_abs);
+
+					for (jz = iz - 1; jz < iz + 3; jz++) {
+
+						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
+						delz_scaled_abs = fabs(delz_scaled);
+						wfz = DisneyKernel(delz_scaled_abs);
+
+						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
+
+						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
+						dx << delx_scaled, dely_scaled, delz_scaled;
+						dx *= cellsize;
+						Lp[i] += wf * rmass[i] * dx * vel_grid.transpose();
+						Kp[i] += wf * rmass[i] * dx * dx.transpose();
+
+					}
+				}
+			}
+
+		} // end if (setflag[itype][itype])
+	}
 }
 
 /*
@@ -361,7 +558,7 @@ void PairULSPHBG::ComputeVelocityGradient() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
+						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
 						velocity_gradient += vel_grid * g.transpose();
 					}
 				}
@@ -384,7 +581,8 @@ void PairULSPHBG::ComputeGridForces() {
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	Vector3d g, force;
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf, wfdx, wfdy;
-	double delz_scaled, delz_scaled_abs, wfz, wfdz;
+	double delz_scaled, delz_scaled_abs, wfz, wfdz, vol;
+	Matrix3d scaledStress;
 
 	// ---- compute internal forces ---
 	for (i = 0; i < nall; i++) {
@@ -399,6 +597,10 @@ void PairULSPHBG::ComputeGridForces() {
 			ix = icellsize * px_shifted;
 			iy = icellsize * py_shifted;
 			iz = icellsize * pz_shifted;
+
+			//vol = J[i] * vfrac[i]; // current volume
+			vol = vfrac[i];
+			scaledStress = -vol * stressTensor[i];
 
 			for (jx = ix - 1; jx < ix + 3; jx++) {
 
@@ -433,7 +635,7 @@ void PairULSPHBG::ComputeGridForces() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						force = -vfrac[i] * stressTensor[i] * g; // this is the force from the divergence of the stress field
+						force = scaledStress * g; // this is the force from the divergence of the stress field
 
 						force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
 						force(1) += wf * f[i][1];
@@ -542,7 +744,6 @@ void PairULSPHBG::UpdateDeformationGradient() {
 
 	// given the velocity gradient, update the deformation gradient
 	double **smd_data_9 = atom->smd_data_9;
-	double *vfrac = atom->vfrac;
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
 	int i, itype;
@@ -569,12 +770,10 @@ void PairULSPHBG::UpdateDeformationGradient() {
 
 			//cout << "this is F befor update" << endl << F << endl;
 
-			Fincr = eye + update->dt * L[i];
+			Fincr = eye + 1.0 * update->dt * L[i];
 			F = Fincr * F;
 
 			//cout << "this is F" << endl << F << endl;
-
-			vfrac[i] *= Fincr.determinant();
 
 			smd_data_9[i][0] = F(0, 0);
 			smd_data_9[i][1] = F(0, 1);
@@ -629,7 +828,10 @@ void PairULSPHBG::compute(int eflag, int vflag) {
 		particleVelocities = new Vector3d[nmax];
 		delete[] particleAccelerations;
 		particleAccelerations = new Vector3d[nmax];
-
+		delete[] Lp;
+		Lp = new Matrix3d[nmax];
+		delete[] Kp;
+		Kp = new Matrix3d[nmax];
 	}
 
 	/*
@@ -652,38 +854,48 @@ void PairULSPHBG::compute(int eflag, int vflag) {
 
 	CreateGrid();
 
-	/*
-	 * USF scheme
-	 */
+	PointsToGrid();
+	ComputeLpKp();
+	PointsToGrid_RPIC();
 
-	bool USF = true;
+	ComputeVelocityGradient(); // using current velocities
+	UpdateDeformationGradient();
+	UpdateStress();
+	GetStress();
+	comm->forward_comm_pair(this);
+	ComputeGridForces();
+	UpdateGridVelocities();
+	GridToPoints();
+	//AdvanceParticlePositionsVelocities();
 
-	if (USF) {
-		PointsToGrid();
-		ComputeVelocityGradient();
-		UpdateDeformationGradient();
-		UpdateStress();
-		GetStress();
-		comm->forward_comm_pair(this);
-		ComputeGridForces();
-		UpdateGridVelocities();
-		GridToPoints();
-	} else {
-
-		/*
-		 * USL scheme
-		 */
-		PointsToGrid();
-		GetStress();
-		comm->forward_comm_pair(this);
-		ComputeGridForces();
-		UpdateGridVelocities();
-		ComputeVelocityGradient(); // using updated grid velocities
-		UpdateDeformationGradient();
-		UpdateStress();
-		GridToPoints();
-	}
 	DestroyGrid();
+
+}
+
+void PairULSPHBG::AdvanceParticlePositionsVelocities() {
+	double **x = atom->x;
+	double **v = atom->v;
+	double **vest = atom->vest;
+	int *type = atom->type;
+	int nlocal = atom->nlocal;
+	int i, itype;
+	for (i = 0; i < nlocal; i++) {
+		itype = type[i];
+		if (setflag[itype][itype] == 1) {
+
+			x[i][0] += update->dt * particleVelocities[i](0);
+			x[i][1] += update->dt * particleVelocities[i](1);
+			x[i][2] += update->dt * particleVelocities[i](2);
+
+			v[i][0] += update->dt * particleAccelerations[i](0); // pure FLIP
+			v[i][1] += update->dt * particleAccelerations[i](1);
+			v[i][2] += update->dt * particleAccelerations[i](2);
+
+			vest[i][0] = v[i][0] + 0.5 * update->dt * particleAccelerations[i](0);
+			vest[i][1] = v[i][1] + 0.5 * update->dt * particleAccelerations[i](1);
+			vest[i][2] = v[i][2] + 0.5 * update->dt * particleAccelerations[i](2);
+		}
+	}
 
 }
 
@@ -692,7 +904,7 @@ void PairULSPHBG::UpdateStress() {
 	double *de = atom->de;
 	double *vfrac = atom->vfrac;
 	int *type = atom->type;
-	Matrix3d D, eye, d_dev, stressRate, oldStress, newStress;
+	Matrix3d D, eye, d_dev, stressRate, oldStress, newStress, F;
 	double d_iso;
 	int i, itype;
 	int nlocal = atom->nlocal;
@@ -717,9 +929,10 @@ void PairULSPHBG::UpdateStress() {
 			D = 0.5 * (L[i] + L[i].transpose());
 			d_dev = Deviator(D);
 			d_iso = D.trace();
+			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
 
-			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
-			newStress = oldStress + update->dt * stressRate;
+			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye; // + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
+			newStress = oldStress + 1.0 * update->dt * stressRate;
 
 			tlsph_stress[i][0] = newStress(0, 0);
 			tlsph_stress[i][1] = newStress(0, 1);
@@ -741,7 +954,6 @@ void PairULSPHBG::UpdateStress() {
 			 */
 
 			de[i] += vfrac[i] * (newStress.cwiseProduct(D)).sum();
-
 		}
 	}
 
@@ -1019,9 +1231,9 @@ void PairULSPHBG::settings(int narg, char **arg) {
 //	}
 
 // error check
-	//if ((gradient_correction_flag == true) && (density_summation)) {
-	//	error->all(FLERR, "Cannot use *DENSITY_SUMMATION in combination with *YES_GRADIENT_CORRECTION");
-	//}
+//if ((gradient_correction_flag == true) && (density_summation)) {
+//	error->all(FLERR, "Cannot use *DENSITY_SUMMATION in combination with *YES_GRADIENT_CORRECTION");
+//}
 
 	if (comm->me == 0)
 		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n");
@@ -1428,7 +1640,7 @@ double PairULSPHBG::init_one(int i, int j) {
  ------------------------------------------------------------------------- */
 
 void PairULSPHBG::init_style() {
-	// request a granular neighbor list
+// request a granular neighbor list
 	int irequest = neighbor->request(this);
 	neighbor->requests[irequest]->half = 0;
 	neighbor->requests[irequest]->gran = 1;
