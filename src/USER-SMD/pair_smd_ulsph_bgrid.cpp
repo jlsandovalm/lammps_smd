@@ -347,7 +347,11 @@ void PairULSPHBG::PointsToGrid_RPIC() {
 			iy = icellsize * py_shifted;
 			iz = icellsize * pz_shifted;
 
+			if (domain->dimension == 2) {
+				Kp[i](2,2) = 1.0;
+			}
 			KpLp = Kp[i].inverse() * Lp[i];
+			//cout << "This is KpLp " << endl << KpLp << endl;
 			pos_particle << x[i][0], x[i][1], x[i][2];
 
 			for (jx = ix - 1; jx < ix + 3; jx++) {
@@ -387,13 +391,16 @@ void PairULSPHBG::PointsToGrid_RPIC() {
 						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 						dx << delx_scaled, dely_scaled, delz_scaled;
-						dx *= cellsize;
+						dx *= -cellsize;
+						//cout << "This is KpLp " << endl << KpLp << endl;
+						//cout << "this is dx" << dx << endl;
 						vel_RPIC = KpLp * dx;
+						//cout << "this is vel_RPIC" << vel_RPIC << endl << endl;
 
 						gridnodes[jx][jy][jz].mass += wf * rmass[i];
-						gridnodes[jx][jy][jz].vx += wf * rmass[i] * (v[i][0] + vel_RPIC(0));
-						gridnodes[jx][jy][jz].vy += wf * rmass[i] * (v[i][1] + vel_RPIC(1));
-						gridnodes[jx][jy][jz].vz += wf * rmass[i] * (v[i][2] + vel_RPIC(2));
+						gridnodes[jx][jy][jz].vx += wf * rmass[i] * (v[i][0] - vel_RPIC(0));
+						gridnodes[jx][jy][jz].vy += wf * rmass[i] * (v[i][1] - vel_RPIC(1));
+						gridnodes[jx][jy][jz].vz += wf * rmass[i] * (v[i][2] - vel_RPIC(2));
 
 						gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vest[i][0];
 						gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vest[i][1];
@@ -478,7 +485,7 @@ void PairULSPHBG::ComputeLpKp() {
 
 						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
 						dx << delx_scaled, dely_scaled, delz_scaled;
-						dx *= cellsize;
+						dx *= -cellsize;
 						Lp[i] += wf * rmass[i] * dx * vel_grid.transpose();
 						Kp[i] += wf * rmass[i] * dx * dx.transpose();
 
@@ -855,6 +862,7 @@ void PairULSPHBG::compute(int eflag, int vflag) {
 	CreateGrid();
 
 	PointsToGrid();
+
 	ComputeLpKp();
 	PointsToGrid_RPIC();
 
@@ -931,7 +939,7 @@ void PairULSPHBG::UpdateStress() {
 			d_iso = D.trace();
 			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
 
-			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye; // + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
+			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
 			newStress = oldStress + 1.0 * update->dt * stressRate;
 
 			tlsph_stress[i][0] = newStress(0, 0);
