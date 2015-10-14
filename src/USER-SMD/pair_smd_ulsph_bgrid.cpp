@@ -543,46 +543,51 @@ void PairULSPHBG::UpdateDeformationGradient() {
 	// given the velocity gradient, update the deformation gradient
 	double **smd_data_9 = atom->smd_data_9;
 	double *vfrac = atom->vfrac;
+	int *type = atom->type;
 	int nlocal = atom->nlocal;
-	int i;
+	int i, itype;
 	Matrix3d F, Fincr, eye;
 	eye.setIdentity();
 
 	// transfer particle velocities to grid nodes
 	for (i = 0; i < nlocal; i++) {
 
-		F(0, 0) = smd_data_9[i][0];
-		F(0, 1) = smd_data_9[i][1];
-		F(0, 2) = smd_data_9[i][2];
+		itype = type[i];
+		if (setflag[itype][itype]) {
 
-		F(1, 0) = smd_data_9[i][3];
-		F(1, 1) = smd_data_9[i][4];
-		F(1, 2) = smd_data_9[i][5];
+			F(0, 0) = smd_data_9[i][0];
+			F(0, 1) = smd_data_9[i][1];
+			F(0, 2) = smd_data_9[i][2];
 
-		F(2, 0) = smd_data_9[i][6];
-		F(2, 1) = smd_data_9[i][7];
-		F(2, 2) = smd_data_9[i][8];
+			F(1, 0) = smd_data_9[i][3];
+			F(1, 1) = smd_data_9[i][4];
+			F(1, 2) = smd_data_9[i][5];
 
-		//cout << "this is F befor update" << endl << F << endl;
+			F(2, 0) = smd_data_9[i][6];
+			F(2, 1) = smd_data_9[i][7];
+			F(2, 2) = smd_data_9[i][8];
 
-		Fincr = eye + update->dt * L[i];
-		F = Fincr * F;
+			//cout << "this is F befor update" << endl << F << endl;
 
-		//cout << "this is F" << endl << F << endl;
+			Fincr = eye + update->dt * L[i];
+			F = Fincr * F;
 
-		vfrac[i] *= Fincr.determinant();
+			//cout << "this is F" << endl << F << endl;
 
-		smd_data_9[i][0] = F(0, 0);
-		smd_data_9[i][1] = F(0, 1);
-		smd_data_9[i][2] = F(0, 2);
+			vfrac[i] *= Fincr.determinant();
 
-		smd_data_9[i][3] = F(1, 0);
-		smd_data_9[i][4] = F(1, 1);
-		smd_data_9[i][5] = F(1, 2);
+			smd_data_9[i][0] = F(0, 0);
+			smd_data_9[i][1] = F(0, 1);
+			smd_data_9[i][2] = F(0, 2);
 
-		smd_data_9[i][6] = F(2, 0);
-		smd_data_9[i][7] = F(2, 1);
-		smd_data_9[i][8] = F(2, 2);
+			smd_data_9[i][3] = F(1, 0);
+			smd_data_9[i][4] = F(1, 1);
+			smd_data_9[i][5] = F(1, 2);
+
+			smd_data_9[i][6] = F(2, 0);
+			smd_data_9[i][7] = F(2, 1);
+			smd_data_9[i][8] = F(2, 2);
+		}
 
 	}
 
@@ -637,11 +642,11 @@ void PairULSPHBG::compute(int eflag, int vflag) {
 				for (j = 0; j < 9; j++) {
 					atom_data9[i][j] = 0.0;
 				}
-			}
 
-			atom_data9[i][0] = 1.0;
-			atom_data9[i][4] = 1.0;
-			atom_data9[i][8] = 1.0;
+				atom_data9[i][0] = 1.0;
+				atom_data9[i][4] = 1.0;
+				atom_data9[i][8] = 1.0;
+			}
 		}
 	}
 
