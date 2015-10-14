@@ -350,7 +350,7 @@ void PairULSPHBG::PointsToGrid_RPIC() {
 			if (domain->dimension == 2) {
 				Kp[i](2,2) = 1.0;
 			}
-			KpLp = Kp[i].inverse() * Lp[i];
+			KpLp = Lp[i] * Kp[i].inverse();
 			//cout << "This is KpLp " << endl << KpLp << endl;
 			pos_particle << x[i][0], x[i][1], x[i][2];
 
@@ -398,9 +398,9 @@ void PairULSPHBG::PointsToGrid_RPIC() {
 						//cout << "this is vel_RPIC" << vel_RPIC << endl << endl;
 
 						gridnodes[jx][jy][jz].mass += wf * rmass[i];
-						gridnodes[jx][jy][jz].vx += wf * rmass[i] * (v[i][0] - vel_RPIC(0));
-						gridnodes[jx][jy][jz].vy += wf * rmass[i] * (v[i][1] - vel_RPIC(1));
-						gridnodes[jx][jy][jz].vz += wf * rmass[i] * (v[i][2] - vel_RPIC(2));
+						gridnodes[jx][jy][jz].vx += wf * rmass[i] * (v[i][0] + vel_RPIC(0));
+						gridnodes[jx][jy][jz].vy += wf * rmass[i] * (v[i][1] + vel_RPIC(1));
+						gridnodes[jx][jy][jz].vz += wf * rmass[i] * (v[i][2] + vel_RPIC(2));
 
 						gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vest[i][0];
 						gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vest[i][1];
@@ -486,8 +486,8 @@ void PairULSPHBG::ComputeLpKp() {
 						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
 						dx << delx_scaled, dely_scaled, delz_scaled;
 						dx *= -cellsize;
-						Lp[i] += wf * rmass[i] * dx * vel_grid.transpose();
-						Kp[i] += wf * rmass[i] * dx * dx.transpose();
+						Lp[i] += wf * vel_grid * dx.transpose(); // Lp is B
+						Kp[i] += wf * dx * dx.transpose(); // Kp is D
 
 					}
 				}
@@ -565,7 +565,8 @@ void PairULSPHBG::ComputeVelocityGradient() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
+						vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
+						//vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
 						velocity_gradient += vel_grid * g.transpose();
 					}
 				}

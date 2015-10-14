@@ -96,7 +96,7 @@ fix             integration_fix water smd/integrate_mpm
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
 ####################################################################################################
-variable        dumpFreq equal 20
+variable        dumpFreq equal 100
 compute 	rho all smd/rho
 compute 	nn all smd/ulsph_num_neighs # number of neighbors for each particle
 compute         contact_radius all smd/contact_radius

@@ -44,6 +44,7 @@ pair_style      smd/ulsph_bgrd ${l0}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
+                *STRENGTH_LINEAR 0.5 &
 	        *END
 
 compute         rho all smd/rho
