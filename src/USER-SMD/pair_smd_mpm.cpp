@@ -74,7 +74,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	numNeighs = NULL;
 	particleVelocities = particleAccelerations = NULL;
 
-	comm_forward = 8; // this pair style communicates 8 doubles to ghost atoms
+	comm_forward = 20; // this pair style communicates 8 doubles to ghost atoms
 
 	Bp_exists = false;
 }
@@ -278,6 +278,7 @@ void PairSmdMpm::PointsToGrid() {
 						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 						vel_APIC = Cp * dx + vel_particle; // this is the APIC corrected velocity
+						//vel_APIC = vel_particle;
 
 						gridnodes[jx][jy][jz].mass += wf * rmass[i];
 						gridnodes[jx][jy][jz].vx += wf * rmass[i] * vel_APIC(0);
@@ -652,10 +653,6 @@ void PairSmdMpm::DestroyGrid() {
 /* ---------------------------------------------------------------------- */
 
 void PairSmdMpm::compute(int eflag, int vflag) {
-	int *type = atom->type;
-	double **atom_data9 = atom->smd_data_9;
-	int nlocal = atom->nlocal;
-	int i, j, itype;
 
 	if (eflag || vflag)
 		ev_setup(eflag, vflag);
@@ -680,26 +677,8 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 		Bp_exists = false;
 	}
 
-	/*
-	 * if this is the very first step, zero the array which holds the deformation gradient
-	 */
-	if (update->ntimestep == 0) {
-		for (i = 0; i < nlocal; i++) {
-			itype = type[i];
-			if (setflag[itype][itype]) {
-				for (j = 0; j < 9; j++) {
-					atom_data9[i][j] = 0.0;
-				}
-
-				atom_data9[i][0] = 1.0;
-				atom_data9[i][4] = 1.0;
-				atom_data9[i][8] = 1.0;
-			}
-		}
-	}
-
 	CreateGrid();
-
+	comm->forward_comm_pair(this); // need to do one forward comm here to have APIC Bp on ghosts
 	PointsToGrid();
 	ComputeVelocityGradient(); // using current velocities
 	//UpdateDeformationGradient();
@@ -822,6 +801,7 @@ void PairSmdMpm::AssembleStressTensor() {
 	double **tlsph_stress = atom->smd_stress;
 	double *e = atom->e;
 	double *de = atom->de;
+	double **x = atom->x;
 	int *type = atom->type;
 	double pFinal;
 	int i, itype;
@@ -923,8 +903,16 @@ void PairSmdMpm::AssembleStressTensor() {
 
 				case STRENGTH_LINEAR_PLASTIC:
 					yieldStress = Lookup[YIELD_STRENGTH][itype] + Lookup[HARDENING_PARAMETER][itype] * eff_plastic_strain[i];
+
 					LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
 							newStressDeviator, stressRateDev, plastic_strain_increment);
+
+					if (x[i][0] > -15.0) {
+						newStressDeviator.setZero();
+						stressRateDev.setZero();
+						plastic_strain_increment = 0.0;
+					}
+
 					eff_plastic_strain[i] += plastic_strain_increment;
 
 					break;
@@ -1503,6 +1491,8 @@ double PairSmdMpm::memory_usage() {
 
 int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, int *pbc) {
 	double *vfrac = atom->vfrac;
+	double **smd_data_9 = atom->smd_data_9;
+	double **f = atom->f;
 	int i, j, m;
 
 //printf("packing comm\n");
@@ -1518,6 +1508,21 @@ int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, i
 		buf[m++] = stressTensor[j](0, 1);
 		buf[m++] = stressTensor[j](0, 2);
 		buf[m++] = stressTensor[j](1, 2); // 2 + 6 = 8
+
+		buf[m++] = smd_data_9[j][0];
+		buf[m++] = smd_data_9[j][1];
+		buf[m++] = smd_data_9[j][2];
+		buf[m++] = smd_data_9[j][3];
+		buf[m++] = smd_data_9[j][4];
+		buf[m++] = smd_data_9[j][5];
+		buf[m++] = smd_data_9[j][6];
+		buf[m++] = smd_data_9[j][7];
+		buf[m++] = smd_data_9[j][8];
+
+		buf[m++] = f[j][0];
+		buf[m++] = f[j][1];
+		buf[m++] = f[j][2];
+
 	}
 	return m;
 }
@@ -1526,6 +1531,8 @@ int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, i
 
 void PairSmdMpm::unpack_forward_comm(int n, int first, double *buf) {
 	double *vfrac = atom->vfrac;
+	double **smd_data_9 = atom->smd_data_9;
+	double **f = atom->f;
 	int i, m, last;
 
 	m = 0;
@@ -1543,6 +1550,21 @@ void PairSmdMpm::unpack_forward_comm(int n, int first, double *buf) {
 		stressTensor[i](1, 0) = stressTensor[i](0, 1);
 		stressTensor[i](2, 0) = stressTensor[i](0, 2);
 		stressTensor[i](2, 1) = stressTensor[i](1, 2);
+
+		smd_data_9[i][0] = buf[m++];
+		smd_data_9[i][1] = buf[m++];
+		smd_data_9[i][2] = buf[m++];
+		smd_data_9[i][3] = buf[m++];
+		smd_data_9[i][4] = buf[m++];
+		smd_data_9[i][5] = buf[m++];
+		smd_data_9[i][6] = buf[m++];
+		smd_data_9[i][7] = buf[m++];
+		smd_data_9[i][8] = buf[m++];
+
+		f[i][0] = buf[m++];
+		f[i][1] = buf[m++];
+		f[i][2] = buf[m++];
+
 	}
 }
 
