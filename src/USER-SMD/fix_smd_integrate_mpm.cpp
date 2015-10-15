@@ -169,27 +169,27 @@ void FixSMDIntegrateMpm::final_integrate() {
 				}
 			}
 
-			/*
-			 * approach below conserves total energy in case of 2d bubble test
-			 */
-
 			x[i][0] += dtv * particleVelocities[i](0);
 			x[i][1] += dtv * particleVelocities[i](1);
 			x[i][2] += dtv * particleVelocities[i](2);
-//
+
+			vest[i][0] = v[i][0] + 1.5 * dtv * particleAccelerations[i](0);
+			vest[i][1] = v[i][1] + 1.5 * dtv * particleAccelerations[i](1);
+			vest[i][2] = v[i][2] + 1.5 * dtv * particleAccelerations[i](2);
+
 //			v[i][0] += dtv * particleAccelerations[i](0); // pure FLIP
 //			v[i][1] += dtv * particleAccelerations[i](1);
 //			v[i][2] += dtv * particleAccelerations[i](2);
 
-			// mixed FLIP-PIC
-			double alpha = 0.0;
+// mixed FLIP-PIC
+			double alpha = 0;
 			v[i][0] = (1. - alpha) * particleVelocities[i](0) + alpha * (v[i][0] + dtv * particleAccelerations[i](0));
 			v[i][1] = (1. - alpha) * particleVelocities[i](1) + alpha * (v[i][1] + dtv * particleAccelerations[i](1));
 			v[i][2] = (1. - alpha) * particleVelocities[i](2) + alpha * (v[i][2] + dtv * particleAccelerations[i](2));
 
-			vest[i][0] = v[i][0] + 0.5 * dtv * particleAccelerations[i](0);
-			vest[i][1] = v[i][1] + 0.5 * dtv * particleAccelerations[i](1);
-			vest[i][2] = v[i][2] + 0.5 * dtv * particleAccelerations[i](2);
+			vest[i][0] = v[i][0];
+			vest[i][1] = v[i][1];
+			vest[i][2] = v[i][2];
 
 			e[i] += dtv * de[i];
 

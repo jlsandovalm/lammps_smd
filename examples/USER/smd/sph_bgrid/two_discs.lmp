@@ -53,7 +53,7 @@ pair_coeff      2 2 smd/ulsph_bgrd *COMMON ${rho}  ${c0}          ${art_visc}  0
 		*EOS_LINEAR &
                 *STRENGTH_LINEAR ${G} &
 	        *END
-pair_coeff      1 2 smd/hertz 0
+pair_coeff      1 2 smd/hertz ${K}
 
 compute         rho all smd/rho
 compute         nn all smd/ulsph_num_neighs

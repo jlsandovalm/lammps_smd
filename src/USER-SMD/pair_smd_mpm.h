@@ -24,7 +24,7 @@
 
 #ifdef PAIR_CLASS
 
-PairStyle(smd/ulsph_bgrd,PairULSPHBG)
+PairStyle(smd/mpm,PairSmdMpm)
 
 #else
 
@@ -40,10 +40,10 @@ using namespace Eigen;
 using namespace std;
 namespace LAMMPS_NS {
 
-class PairULSPHBG: public Pair {
+class PairSmdMpm: public Pair {
 public:
-	PairULSPHBG(class LAMMPS *);
-	virtual ~PairULSPHBG();
+	PairSmdMpm(class LAMMPS *);
+	virtual ~PairSmdMpm();
 	virtual void compute(int, int);
 	void settings(int, char **);
 	void coeff(int, char **);
@@ -70,9 +70,6 @@ public:
 	void GridToPoints();
 	void UpdateStress();
 	void GetStress();
-	void AdvanceParticlePositionsVelocities();
-	void ComputeLpKp();
-	void PointsToGrid_RPIC();
 
 protected:
 
@@ -87,9 +84,9 @@ protected:
 	int *numNeighs;
 	double *c0;
 	Matrix3d *stressTensor, *L;
-	Matrix3d *Lp, *Kp;
 
 	double dtCFL;
+	bool Bp_exists;
 
 	Vector3d *particleVelocities, *particleAccelerations; // per-particle angular momentum
 
