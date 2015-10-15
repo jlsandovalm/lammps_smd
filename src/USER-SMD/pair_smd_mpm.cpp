@@ -480,7 +480,7 @@ void PairSmdMpm::UpdateGridVelocities() {
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
-				if (gridnodes[ix][iy][iz].mass > 1.0e-12) {
+				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
 					dtm = update->dt / gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vx += dtm * gridnodes[ix][iy][iz].fx;
 					gridnodes[ix][iy][iz].vy += dtm * gridnodes[ix][iy][iz].fy;
@@ -1458,7 +1458,7 @@ double PairSmdMpm::init_one(int i, int j) {
 	if (setflag[i][j] == 0)
 		error->all(FLERR, "All pair coeffs are not set");
 
-	return 3.0 * cellsize;
+	return 1.0 * cellsize;
 }
 
 /* ----------------------------------------------------------------------
@@ -1490,7 +1490,7 @@ double PairSmdMpm::memory_usage() {
 
 //printf("in memory usage\n");
 
-	return 11 * nmax * sizeof(double);
+	return 11 * nmax * sizeof(double) + grid_nx * grid_ny * grid_nz * sizeof(Gridnode);
 
 }
 
