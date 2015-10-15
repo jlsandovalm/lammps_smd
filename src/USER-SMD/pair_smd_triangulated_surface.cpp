@@ -186,7 +186,8 @@ void PairTriSurf::compute(int eflag, int vflag) {
 				/*
 				 * distance check: is particle closer than its radius to the triangle plane?
 				 */
-				if (fabs(dx.dot(normal)) < radius[particle]) {
+				if (fabs(dx.dot(normal)) < r_particle) {
+				//if (true) {
 					/*
 					 * get other two triangle vertices
 					 */
@@ -218,18 +219,18 @@ void PairTriSurf::compute(int eflag, int vflag) {
 					/*
 					 * penalty force pushes particle away from triangle
 					 */
-					if (r < 1.0 * radius[particle]) {
+					if (r < r_particle) {
 
-						delta = radius[particle] - r; // overlap distance
-						r_geom = radius[particle];
+						delta = r_particle - r; // overlap distance
+						r_geom = r_particle;
 						fpair = 1.066666667e0 * bulkmodulus[itype][jtype] * delta * sqrt(delta * r_geom);
 						dt_crit = 3.14 * sqrt(rmass[particle] / (fpair / delta));
 						stable_time_increment = MIN(stable_time_increment, dt_crit);
 
 						evdwl = r * fpair * 0.4e0 * delta; // GCG 25 April: this expression conserves total energy
-						//printf("tri interaction: r = %f, rcut=%f\n", r, radius[particle]);
+						//printf("tri interaction: r = %f, rcut=%f\n", r, r_particle);
 
-						fpair /= (r + 1.0e-2 * radius[particle]); // divide by r + softening and multiply with non-normalized distance vector
+						fpair /= (r + 1.0e-2 * r_particle); // divide by r + softening and multiply with non-normalized distance vector
 
 						if (particle < nlocal) {
 							f[particle][0] += x4cp(0) * fpair;
@@ -253,7 +254,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 					 * if particle comes too close to triangle, reflect its velocity and explicitly move it away
 					 */
 
-					touch_distance = 0.1 * radius[particle];
+					touch_distance = 0.5 * r_particle;
 					if (r < touch_distance) {
 
 						/*
@@ -267,17 +268,21 @@ void PairTriSurf::compute(int eflag, int vflag) {
 						v_old(1) = v[particle][1];
 						v_old(2) = v[particle][2];
 						if (v_old.dot(normal) < 0.0) {
-							printf("flipping velocity\n");
-							vnew = 1.0 * (-2.0 * v_old.dot(normal) * normal + v_old);
+							//printf("flipping velocity\n");
+
+							vnew = -1.0 * (-2.0 * v_old.dot(normal) * normal + v_old);
+							//cout << "vold " << v_old.transpose() << endl;
+							//cout << "v new" << vnew.transpose() << endl;
 							v[particle][0] = vnew(0);
 							v[particle][1] = vnew(1);
 							v[particle][2] = vnew(2);
 						}
 
-						printf("moving particle on top of triangle\n");
+//						printf("moving particle on top of triangle\n");
 						x[particle][0] = cp(0) + touch_distance * normal(0);
 						x[particle][1] = cp(1) + touch_distance * normal(1);
 						x[particle][2] = cp(2) + touch_distance * normal(2);
+
 					}
 
 				}

@@ -40,7 +40,7 @@ comm_modify     vel yes #cutoff ${comm_cutoff}
 
 
 # this is an updated-Lagrangian pair style with Tait EOS and physical viscosity.
-pair_style      smd/ulsph_bgrd ${l0}
+pair_style      smd/mpm ${l0}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &

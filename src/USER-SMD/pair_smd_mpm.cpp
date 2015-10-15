@@ -58,6 +58,7 @@ using namespace Eigen;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
+#define MASS_CUTOFF 1.0e-8
 
 PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 		Pair(lmp) {
@@ -237,6 +238,7 @@ void PairSmdMpm::PointsToGrid() {
 			} else {
 				Cp.setZero();
 			}
+			//Cp.setZero();
 
 			for (jx = ix - 1; jx < ix + 3; jx++) {
 
@@ -296,7 +298,7 @@ void PairSmdMpm::PointsToGrid() {
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
-				if (gridnodes[ix][iy][iz].mass > 1.0e-12) {
+				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
 					gridnodes[ix][iy][iz].vx /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vy /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vz /= gridnodes[ix][iy][iz].mass;
@@ -549,7 +551,7 @@ void PairSmdMpm::GridToPoints() {
 						// NEED TO COMPUTE BP_n+1 here using the updated grid velocities
 						Bp += wf * vel_grid * dx.transpose();
 
-						if (gridnodes[jx][jy][jz].mass > 1.0e-12) {
+						if (gridnodes[jx][jy][jz].mass > MASS_CUTOFF) {
 							particleAccelerations[i](0) += wf * gridnodes[jx][jy][jz].fx / gridnodes[jx][jy][jz].mass;
 							particleAccelerations[i](1) += wf * gridnodes[jx][jy][jz].fy / gridnodes[jx][jy][jz].mass;
 							particleAccelerations[i](2) += wf * gridnodes[jx][jy][jz].fz / gridnodes[jx][jy][jz].mass;
@@ -575,6 +577,11 @@ void PairSmdMpm::GridToPoints() {
 			smd_data_9[i][6] = Bp(2, 0);
 			smd_data_9[i][7] = Bp(2, 1);
 			smd_data_9[i][8] = Bp(2, 2);
+
+			if (domain->dimension == 2) {
+				particleAccelerations[i](2) = 0.0;
+				particleVelocities[i](2) = 0.0;
+			}
 
 		} // end if (setflag[itype][itype])
 	}
