@@ -914,7 +914,7 @@ void PairSmdMpm::AssembleStressTensor() {
 					LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
 							newStressDeviator, stressRateDev, plastic_strain_increment);
 
-					if (x[i][0] > -15.0) {
+					if (x[i][0] > -65.0) {
 						newStressDeviator.setZero();
 						stressRateDev.setZero();
 						plastic_strain_increment = 0.0;
