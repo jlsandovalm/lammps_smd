@@ -59,6 +59,9 @@ using namespace Eigen;
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
 #define MASS_CUTOFF 1.0e-8
+#define STENCIL_LOW 1
+#define STENCIL_HIGH 3
+#define GRID_OFFSET 4
 
 PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 		Pair(lmp) {
@@ -223,9 +226,9 @@ void PairSmdMpm::PointsToGrid() {
 			Bp(2, 1) = smd_data_9[i][7];
 			Bp(2, 2) = smd_data_9[i][8];
 
-			px_shifted = x[i][0] - min_ix * cellsize + 3 * cellsize;
-			py_shifted = x[i][1] - min_iy * cellsize + 3 * cellsize;
-			pz_shifted = x[i][2] - min_iz * cellsize + 3 * cellsize;
+			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
 
 			ix = icellsize * px_shifted;
 			iy = icellsize * py_shifted;
@@ -240,7 +243,7 @@ void PairSmdMpm::PointsToGrid() {
 			}
 			//Cp.setZero();
 
-			for (jx = ix - 1; jx < ix + 3; jx++) {
+				for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
 				// check that cell indices are within bounds
 				if ((jx < 0) || (jx >= grid_nx)) {
@@ -253,7 +256,7 @@ void PairSmdMpm::PointsToGrid() {
 				delx_scaled_abs = fabs(delx_scaled);
 				wfx = DisneyKernel(delx_scaled_abs);
 
-				for (jy = iy - 1; jy < iy + 3; jy++) {
+					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
 					if ((jy < 0) || (jy >= grid_ny)) {
 						printf("y cell indey %d is outside range 0 .. %d\n", jy, grid_ny);
@@ -265,7 +268,7 @@ void PairSmdMpm::PointsToGrid() {
 					dely_scaled_abs = fabs(dely_scaled);
 					wfy = DisneyKernel(dely_scaled_abs);
 
-					for (jz = iz - 1; jz < iz + 3; jz++) {
+					for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
 						if ((jz < 0) || (jz >= grid_nz)) {
 							printf("z cell index %d is outside range 0 .. %d\n", jz, grid_nz);
@@ -335,15 +338,15 @@ void PairSmdMpm::ComputeVelocityGradient() {
 		if (setflag[itype][itype]) {
 
 			velocity_gradient.setZero();
-			px_shifted = x[i][0] - min_ix * cellsize + 3 * cellsize;
-			py_shifted = x[i][1] - min_iy * cellsize + 3 * cellsize;
-			pz_shifted = x[i][2] - min_iz * cellsize + 3 * cellsize;
+			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
 
 			ix = icellsize * px_shifted;
 			iy = icellsize * py_shifted;
 			iz = icellsize * pz_shifted;
 
-			for (jx = ix - 1; jx < ix + 3; jx++) {
+			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
 				delx_scaled = px_shifted * icellsize - 1.0 * jx;
 				delx_scaled_abs = fabs(delx_scaled);
@@ -352,7 +355,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 				if (delx_scaled < 0.0)
 					wfdx = -wfdx;
 
-				for (jy = iy - 1; jy < iy + 3; jy++) {
+					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
 					dely_scaled = py_shifted * icellsize - 1.0 * jy;
 					dely_scaled_abs = fabs(dely_scaled);
@@ -361,7 +364,8 @@ void PairSmdMpm::ComputeVelocityGradient() {
 					if (dely_scaled < 0.0)
 						wfdy = -wfdy;
 
-					for (jz = iz - 1; jz < iz + 3; jz++) {
+
+						for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
 						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
 						delz_scaled_abs = fabs(delz_scaled);
@@ -378,6 +382,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 
 						vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
 						velocity_gradient += vel_grid * g.transpose();
+						//velocity_gradient(0,0) += wf * gridnodes[jx][jy][jz].mass;
 					}
 				}
 			}
@@ -408,9 +413,9 @@ void PairSmdMpm::ComputeGridForces() {
 		itype = type[i];
 		if (setflag[itype][itype]) {
 
-			px_shifted = x[i][0] - min_ix * cellsize + 3 * cellsize;
-			py_shifted = x[i][1] - min_iy * cellsize + 3 * cellsize;
-			pz_shifted = x[i][2] - min_iz * cellsize + 3 * cellsize;
+			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
 
 			ix = icellsize * px_shifted;
 			iy = icellsize * py_shifted;
@@ -419,7 +424,7 @@ void PairSmdMpm::ComputeGridForces() {
 			vol = vfrac[i];
 			scaledStress = -vol * stressTensor[i];
 
-			for (jx = ix - 1; jx < ix + 3; jx++) {
+				for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
 				delx_scaled = px_shifted * icellsize - 1.0 * jx;
 				delx_scaled_abs = fabs(delx_scaled);
@@ -428,7 +433,8 @@ void PairSmdMpm::ComputeGridForces() {
 				if (delx_scaled < 0.0)
 					wfdx = -wfdx;
 
-				for (jy = iy - 1; jy < iy + 3; jy++) {
+
+					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
 					dely_scaled = py_shifted * icellsize - 1.0 * jy;
 					dely_scaled_abs = fabs(dely_scaled);
@@ -437,7 +443,7 @@ void PairSmdMpm::ComputeGridForces() {
 					if (dely_scaled < 0.0)
 						wfdy = -wfdy;
 
-					for (jz = iz - 1; jz < iz + 3; jz++) {
+					for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
 						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
 						delz_scaled_abs = fabs(delz_scaled);
@@ -509,9 +515,9 @@ void PairSmdMpm::GridToPoints() {
 		itype = type[i];
 		if (setflag[itype][itype]) {
 
-			px_shifted = x[i][0] - min_ix * cellsize + 3 * cellsize;
-			py_shifted = x[i][1] - min_iy * cellsize + 3 * cellsize;
-			pz_shifted = x[i][2] - min_iz * cellsize + 3 * cellsize;
+			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
 
 			ix = icellsize * px_shifted;
 			iy = icellsize * py_shifted;
@@ -521,21 +527,21 @@ void PairSmdMpm::GridToPoints() {
 			particleAccelerations[i].setZero();
 			Bp.setZero();
 
-			for (jx = ix - 1; jx < ix + 3; jx++) {
+				for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
 				delx_scaled = px_shifted * icellsize - 1.0 * jx;
 				dx(0) = delx_scaled * cellsize;
 				delx_scaled_abs = fabs(delx_scaled);
 				wfx = DisneyKernel(delx_scaled_abs);
 
-				for (jy = iy - 1; jy < iy + 3; jy++) {
+					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
 					dely_scaled = py_shifted * icellsize - 1.0 * jy;
 					dx(1) = dely_scaled * cellsize;
 					dely_scaled_abs = fabs(dely_scaled);
 					wfy = DisneyKernel(dely_scaled_abs);
 
-					for (jz = iz - 1; jz < iz + 3; jz++) {
+					for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
 						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
 						dx(2) = delz_scaled * cellsize;
@@ -914,11 +920,11 @@ void PairSmdMpm::AssembleStressTensor() {
 					LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
 							newStressDeviator, stressRateDev, plastic_strain_increment);
 
-					if (x[i][0] > -65.0) {
-						newStressDeviator.setZero();
-						stressRateDev.setZero();
-						plastic_strain_increment = 0.0;
-					}
+//					if (x[i][0] > -65.0) {
+//						newStressDeviator.setZero();
+//						stressRateDev.setZero();
+//						plastic_strain_increment = 0.0;
+//					}
 
 					eff_plastic_strain[i] += plastic_strain_increment;
 
