@@ -1464,7 +1464,7 @@ double PairSmdMpm::init_one(int i, int j) {
 	if (setflag[i][j] == 0)
 		error->all(FLERR, "All pair coeffs are not set");
 
-	return 1.0 * cellsize;
+	return 3.0 * cellsize;
 }
 
 /* ----------------------------------------------------------------------

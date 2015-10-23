@@ -30,7 +30,7 @@ variable        l0 equal 0.2
 lattice         sq ${l0}
 create_atoms    1 region sphere
 displace_atoms  all move 0.127127 0 0 units box
-variable        mpm_cellsize equal 2.0*${l0}
+variable        mpm_cellsize equal 5.0*${l0}
 
 variable        vol_one equal ${l0}^2
 set             group all volume ${vol_one}
