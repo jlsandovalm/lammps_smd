@@ -1,16 +1,26 @@
 # Water bubble test.
 # 
 
-variable        rho equal 1 # mass density of water dropt
-variable        h equal 0.08 # characteristic smoothing length, used here only for determining 
-variable        K equal 10.0 # bulk modulus of the fluid
-variable        hg equal 0 # hourglass control coefficient, must be zero for fluids.
-variable        art_visc equal 0.5 # We can set the artificial viscosity to zero if physical visc. is present.
+variable 	E equal 70.0 # Young's modulus
+variable 	nu equal 0.45 # Poisson ratio
+variable 	rho equal 1 # initial mass density
+variable        q1 equal 0.56 # standard artificial viscosity linear coefficient
+variable        q2 equal 0.0  # standard artificial viscosity quadratic coefficient
+variable        hg equal 10.0 # hourglass control coefficient
+variable        cp equal 1.0 # heat capacity of material -- not used here
+
+
+variable        G equal ${E}/(2*(1+${nu}))
+variable        K equal ${E}/(3*(1-2*${nu}))
+variable        sigy equal 330.3
+variable        c0 equal sqrt(${K}/${rho})
+
+
+variable        l0 equal 0.20
 # ----
-variable        c0 equal sqrt(${K}/${rho}) # speed of sound
-variable        dt equal 0.125*${h}/${c0} # CFL estimate for the stable timestep
+variable        dt equal 0.125*${l0}/${c0} # CFL estimate for the stable timestep
 print           "sound speed is ${c0}, CFL timestep is approximately ${dt}"
-variable        skin equal 0.5*${h} # Verlet list range
+variable        skin equal ${l0} # Verlet list range
 
 units		si
 dimension       2
@@ -26,11 +36,11 @@ region          box block 00 10 00 10 -0.1 0.1 units box
 create_box      1 box
 #region          sphere sphere  5  5 0 2.5 units box
 region          sphere block 0 8 0 8 EDGE EDGE units box
-variable        l0 equal 0.2
+
 lattice         sq ${l0}
 create_atoms    1 region sphere
 displace_atoms  all move 0.127127 0 0 units box
-variable        mpm_cellsize equal 5.0*${l0}
+variable        mpm_cellsize equal 1.0*${l0}
 
 variable        vol_one equal ${l0}^2
 set             group all volume ${vol_one}
@@ -45,9 +55,9 @@ comm_modify     vel yes #cutoff ${comm_cutoff}
 # this is an updated-Lagrangian pair style with Tait EOS and physical viscosity.
 pair_style      smd/mpm ${mpm_cellsize}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
-pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${q1}  0             ${hg} &
 		*EOS_LINEAR &
-                *STRENGTH_LINEAR 0.5 &
+                *STRENGTH_LINEAR ${G} &
 	        *END
 
 compute         rho all smd/rho
@@ -89,7 +99,7 @@ thermo_style    custom step ke pe v_etot c_alleint dt v_amz
 # Case 2: rotation around center of mass:  angular momentum should stay constant if kernel gradient correction
 # is used, and drift if no kernel gradient is used
 
-velocity        all ramp vx    -0.5 0.5 x 0 10 units box
+velocity        all ramp vx    -0.1 0.1 x 0 10 units box
 #velocity        all ramp vy    0.1 -0.1 y 00 10 units box
 
 #

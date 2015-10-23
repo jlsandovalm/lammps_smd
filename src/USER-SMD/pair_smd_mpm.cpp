@@ -61,7 +61,7 @@ using namespace Eigen;
 #define MASS_CUTOFF 1.0e-8
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
-#define GRID_OFFSET 4
+#define GRID_OFFSET 2
 
 PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 		Pair(lmp) {
@@ -150,9 +150,12 @@ void PairSmdMpm::CreateGrid() {
 	min_iz = icellsize * minz;
 	max_iz = icellsize * maxz;
 
-	grid_nx = (max_ix - min_ix) + 7;
-	grid_ny = (max_iy - min_iy) + 7;
-	grid_nz = (max_iz - min_iz) + 7;
+
+
+
+	grid_nx = (max_ix - min_ix) + 5;
+	grid_ny = (max_iy - min_iy) + 5;
+	grid_nz = (max_iz - min_iz) + 5;
 
 	// allocate grid storage
 	// we need a triple of indices (i, j, k)
@@ -283,7 +286,6 @@ void PairSmdMpm::PointsToGrid() {
 						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 						vel_APIC = Cp * dx + vel_particle; // this is the APIC corrected velocity
-						//vel_APIC = vel_particle;
 
 						gridnodes[jx][jy][jz].mass += wf * rmass[i];
 						gridnodes[jx][jy][jz].vx += wf * rmass[i] * vel_APIC(0);
