@@ -53,7 +53,7 @@ class FixSMDIntegrateMpm : public Fix {
   bool adjust_radius_flag;
   double adjust_radius_factor;
   int min_nn, max_nn; // number of SPH neighbors should lie within this interval
-  double smooth_density_field_factor;
+  double flip_contribution;
 
   class Pair *pair;
 };

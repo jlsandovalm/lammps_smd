@@ -70,8 +70,11 @@ public:
 	void GridToPoints();
 	void UpdateStress();
 	void GetStress();
+	void ApplyVelocityBC();
 
 protected:
+
+	bool APIC;
 
 	double *c0_type; // reference speed of sound defined per particle type
 	double *rho0; // reference mass density per type
@@ -134,6 +137,7 @@ private:
 		double vx, vy, vz;
 		double vestx, vesty, vestz;
 		double fx, fy, fz;
+		bool isVelocityBC;
 	};
 
 	Gridnode ***gridnodes;

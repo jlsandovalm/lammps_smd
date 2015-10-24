@@ -60,7 +60,7 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 
 	adjust_radius_flag = false;
 	vlimit = -1.0;
-	smooth_density_field_factor = 0.0;
+	flip_contribution = 0.99;
 	int iarg = 3;
 
 	if (comm->me == 0) {
@@ -83,6 +83,17 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 			if (comm->me == 0) {
 				printf("... will limit velocities to <= %g\n", vlimit);
 			}
+
+		} else if (strcmp(arg[iarg], "FLIP") == 0) {
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected number following FLIP");
+			}
+			flip_contribution = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... will use %3.2f FLIP and %3.2f PIC update for velocities\n", flip_contribution, 1.0 - flip_contribution);
+			}
 		} else {
 			char msg[128];
 			sprintf(msg, "Illegal keyword for smd/integrate_mpm: %s\n", arg[iarg]);
@@ -94,6 +105,7 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 	}
 
 	if (comm->me == 0) {
+		printf("... will use %3.2f FLIP and %3.2f PIC update for velocities\n", flip_contribution, 1.0 - flip_contribution);
 		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n\n");
 	}
 
@@ -130,6 +142,8 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 	double **v = atom->v;
 	int *mask = atom->mask;
 	int nlocal = atom->nlocal;
+	tagint *mol = atom->molecule;
+	double **vest = atom->vest;
 
 	int i;
 
@@ -152,9 +166,10 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 
 void FixSMDIntegrateMpm::final_integrate() {
 
-	double **x = atom->x;
 	double **v = atom->v;
+	double **f = atom->f;
 	double **vest = atom->vest;
+	double *rmass = atom->rmass;
 	double *e = atom->e;
 	double *de = atom->de;
 
@@ -189,23 +204,27 @@ void FixSMDIntegrateMpm::final_integrate() {
 				}
 			}
 
-//			v[i][0] += dtv * particleAccelerations[i](0); // pure FLIP
-//			v[i][1] += dtv * particleAccelerations[i](1);
-//			v[i][2] += dtv * particleAccelerations[i](2);
-
-			v[i][0] = particleVelocities[i](0);
-			v[i][1] = particleVelocities[i](1);
-			v[i][2] = particleVelocities[i](2);
-
 			// mixed FLIP-PIC
-			//double alpha = 0;
-//			v[i][0] = (1. - alpha) * particleVelocities[i](0) + alpha * (v[i][0] + dtv * particleAccelerations[i](0));
-//			v[i][1] = (1. - alpha) * particleVelocities[i](1) + alpha * (v[i][1] + dtv * particleAccelerations[i](1));
-//			v[i][2] = (1. - alpha) * particleVelocities[i](2) + alpha * (v[i][2] + dtv * particleAccelerations[i](2));
+			v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
+					+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
+			v[i][1] = (1. - flip_contribution) * particleVelocities[i](1)
+					+ flip_contribution * (v[i][1] + dtv * particleAccelerations[i](1));
+			v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
+					+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 
-			vest[i][0] = v[i][0];
-			vest[i][1] = v[i][1];
-			vest[i][2] = v[i][2];
+			if (flip_contribution > -1.0) {
+				vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
+				vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
+				vest[i][2] = v[i][2] + dtf * particleAccelerations[i](2);
+			} else {
+				vest[i][0] = v[i][0];
+				vest[i][1] = v[i][1];
+				vest[i][2] = v[i][2];
+			}
+
+			f[i][0] = rmass[i] * particleAccelerations[i](0);
+			f[i][1] = rmass[i] * particleAccelerations[i](1);
+			f[i][2] = rmass[i] * particleAccelerations[i](2);
 
 			e[i] += dtv * de[i];
 

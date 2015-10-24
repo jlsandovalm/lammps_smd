@@ -133,7 +133,7 @@ FixSMDSetVel::~FixSMDSetVel() {
 
 int FixSMDSetVel::setmask() {
 	int mask = 0;
-	//mask |= INITIAL_INTEGRATE;
+	mask |= INITIAL_INTEGRATE;
 	mask |= POST_FORCE;
 	return mask;
 }
@@ -235,6 +235,119 @@ void FixSMDSetVel::setup(int vflag) {
 void FixSMDSetVel::min_setup(int vflag) {
 	post_force(vflag);
 }
+
+/* ---------------------------------------------------------------------- */
+
+void FixSMDSetVel::initial_integrate(int vflag) {
+	double **x = atom->x;
+	double **f = atom->f;
+	double **v = atom->v;
+	double **vest = atom->vest;
+	int *mask = atom->mask;
+	int nlocal = atom->nlocal;
+
+	// update region if necessary
+
+	Region *region = NULL;
+	if (iregion >= 0) {
+		region = domain->regions[iregion];
+		region->prematch();
+	}
+
+	// reallocate sforce array if necessary
+
+	if (varflag == ATOM && nlocal > maxatom) {
+		maxatom = atom->nmax;
+		memory->destroy(sforce);
+		memory->create(sforce, maxatom, 3, "setvelocity:sforce");
+	}
+
+	foriginal[0] = foriginal[1] = foriginal[2] = 0.0;
+	force_flag = 0;
+
+	if (varflag == CONSTANT) {
+		for (int i = 0; i < nlocal; i++)
+			if (mask[i] & groupbit) {
+				if (region && !region->match(x[i][0], x[i][1], x[i][2]))
+					continue;
+				foriginal[0] += f[i][0];
+				foriginal[1] += f[i][1];
+				foriginal[2] += f[i][2];
+				if (xstyle) {
+					v[i][0] = xvalue;
+					vest[i][0] = xvalue;
+					f[i][0] = 0.0;
+				}
+				if (ystyle) {
+					v[i][1] = yvalue;
+					vest[i][1] = yvalue;
+					f[i][1] = 0.0;
+				}
+				if (zstyle) {
+					v[i][2] = zvalue;
+					vest[i][2] = zvalue;
+					f[i][2] = 0.0;
+				}
+			}
+
+		// variable force, wrap with clear/add
+
+	} else {
+
+		modify->clearstep_compute();
+
+		if (xstyle == EQUAL)
+			xvalue = input->variable->compute_equal(xvar);
+		else if (xstyle == ATOM)
+			input->variable->compute_atom(xvar, igroup, &sforce[0][0], 3, 0);
+		if (ystyle == EQUAL)
+			yvalue = input->variable->compute_equal(yvar);
+		else if (ystyle == ATOM)
+			input->variable->compute_atom(yvar, igroup, &sforce[0][1], 3, 0);
+		if (zstyle == EQUAL)
+			zvalue = input->variable->compute_equal(zvar);
+		else if (zstyle == ATOM)
+			input->variable->compute_atom(zvar, igroup, &sforce[0][2], 3, 0);
+
+		modify->addstep_compute(update->ntimestep + 1);
+
+		//printf("setting velocity at timestep %d\n", update->ntimestep);
+
+		for (int i = 0; i < nlocal; i++)
+			if (mask[i] & groupbit) {
+				if (region && !region->match(x[i][0], x[i][1], x[i][2]))
+					continue;
+				foriginal[0] += f[i][0];
+				foriginal[1] += f[i][1];
+				foriginal[2] += f[i][2];
+				if (xstyle == ATOM) {
+					vest[i][0] = v[i][0] = sforce[i][0];
+					f[i][0] = 0.0;
+				} else if (xstyle) {
+					vest[i][0] = v[i][0] = xvalue;
+					f[i][0] = 0.0;
+				}
+
+				if (ystyle == ATOM) {
+					vest[i][1] = v[i][1] = sforce[i][1];
+					f[i][1] = 0.0;
+				} else if (ystyle) {
+					vest[i][1] = v[i][1] = yvalue;
+					f[i][1] = 0.0;
+				}
+
+				if (zstyle == ATOM) {
+					vest[i][2] = v[i][2] = sforce[i][2];
+					f[i][2] = 0.0;
+				} else if (zstyle) {
+					vest[i][2] = v[i][2] = zvalue;
+					f[i][2] = 0.0;
+				}
+
+			}
+	}
+}
+
 
 /* ---------------------------------------------------------------------- */
 
