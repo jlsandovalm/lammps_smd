@@ -86,7 +86,7 @@ protected:
 	int nmax; // max number of atoms on this proc
 	int *numNeighs;
 	double *c0;
-	Matrix3d *stressTensor, *L;
+	Matrix3d *stressTensor, *L, *F;
 
 	double dtCFL;
 	bool Bp_exists;
@@ -138,6 +138,7 @@ private:
 		double vestx, vesty, vestz;
 		double fx, fy, fz;
 		bool isVelocityBC;
+		Vector3d u;
 	};
 
 	Gridnode ***gridnodes;

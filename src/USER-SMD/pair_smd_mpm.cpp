@@ -74,7 +74,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	Lookup = NULL;
 
 	nmax = 0; // make sure no atom on this proc such that initial memory allocation is correct
-	stressTensor = L = NULL;
+	stressTensor = L = F = NULL;
 	numNeighs = NULL;
 	particleVelocities = particleAccelerations = NULL;
 
@@ -100,6 +100,7 @@ PairSmdMpm::~PairSmdMpm() {
 		delete[] c0;
 		delete[] stressTensor;
 		delete[] L;
+		delete[] F;
 		delete[] numNeighs;
 		delete[] particleVelocities;
 		delete[] particleAccelerations;
@@ -172,6 +173,7 @@ void PairSmdMpm::CreateGrid() {
 void PairSmdMpm::PointsToGrid() {
 	double **smd_data_9 = atom->smd_data_9;
 	double **x = atom->x;
+	double **x0 = atom->x0;
 	double **v = atom->v;
 	double **vest = atom->vest;
 	double *rmass = atom->rmass;
@@ -183,7 +185,7 @@ void PairSmdMpm::PointsToGrid() {
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wf, wfx, wfy;
 	double delz_scaled, delz_scaled_abs, wfz;
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
-	Vector3d vel_APIC, vel_particle, vel_particle_est, dx;
+	Vector3d vel_APIC, vel_particle, vel_particle_est, dx, displacement;
 	Matrix3d eye, Dp, Dp_inv, Cp, Bp;
 
 	// clear the grid
@@ -201,6 +203,7 @@ void PairSmdMpm::PointsToGrid() {
 				gridnodes[ix][iy][iz].fy = 0.0;
 				gridnodes[ix][iy][iz].fz = 0.0;
 				gridnodes[ix][iy][iz].isVelocityBC = false;
+				gridnodes[ix][iy][iz].u.setZero();
 			}
 		}
 	}
@@ -240,6 +243,7 @@ void PairSmdMpm::PointsToGrid() {
 			iy = icellsize * py_shifted;
 			iz = icellsize * pz_shifted;
 
+			displacement << x[i][0] - x0[i][0], x[i][1] - x0[i][1], x[i][2] - x0[i][2];
 			vel_particle << v[i][0], v[i][1], v[i][2];
 			vel_particle_est << vest[i][0], vest[i][1], vest[i][2];
 
@@ -309,6 +313,7 @@ void PairSmdMpm::PointsToGrid() {
 							gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vel_particle_est(2);
 						}
 
+						gridnodes[jx][jy][jz].u += wf * rmass[i] * displacement;
 						gridnodes[jx][jy][jz].mass += wf * rmass[i];
 
 					}
@@ -330,6 +335,10 @@ void PairSmdMpm::PointsToGrid() {
 					gridnodes[ix][iy][iz].vestx /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vesty /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].vestz /= gridnodes[ix][iy][iz].mass;
+
+					gridnodes[ix][iy][iz].u /= gridnodes[ix][iy][iz].mass;
+
+					//cout << gridnodes[ix][iy][iz].u(0) << " " << gridnodes[ix][iy][iz].vx << endl;
 				}
 			}
 		}
@@ -425,9 +434,11 @@ void PairSmdMpm::ComputeVelocityGradient() {
 	int ix, iy, iz, jx, jy, jz;
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	Vector3d g, vel_grid;
-	Matrix3d velocity_gradient, D;
+	Matrix3d velocity_gradient, D, displacement_gradient, Finv, eye;
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf, wfdx, wfdy;
 	double delz_scaled, delz_scaled_abs, wfz, wfdz;
+
+	eye.setIdentity();
 
 	// compute deformation gradient
 	for (i = 0; i < nlocal; i++) {
@@ -436,6 +447,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 		if (setflag[itype][itype]) {
 
 			velocity_gradient.setZero();
+			displacement_gradient.setZero();
 			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
 			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
 			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
@@ -477,21 +489,32 @@ void PairSmdMpm::ComputeVelocityGradient() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						//if (APIC) {
-						//	vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
-						//} else {
-							vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
-						//}
+						if (APIC) {
+						vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
+						} else {
+						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
+						}
 						velocity_gradient += vel_grid * g.transpose();
+
+						displacement_gradient += gridnodes[jx][jy][jz].u * g.transpose();
 					}
 				}
 			}
 			L[i] = velocity_gradient;
+			Finv = eye - displacement_gradient; // this is the incremental deformation gradient
+			if (domain->dimension == 2) {
+				Finv(2, 2) = 1.0;
+			}
+//
+			F[i] = Finv.inverse();
+			//cout << "this is F" << endl << F[i] << endl << endl;
 
-		} // end if (setflag[itype][itype])
-	}
-	// ---- end velocity gradients ----
+//			F[i] = displacement_gradient;
+		}
+
+	} // end if (setflag[itype][itype])
 }
+// ---- end velocity gradients ----
 
 void PairSmdMpm::ComputeGridForces() {
 	double **x = atom->x;
@@ -507,7 +530,7 @@ void PairSmdMpm::ComputeGridForces() {
 	double delz_scaled, delz_scaled_abs, wfz, wfdz, vol;
 	Matrix3d scaledStress;
 
-	// ---- compute internal forces ---
+// ---- compute internal forces ---
 	for (i = 0; i < nall; i++) {
 
 		itype = type[i];
@@ -608,7 +631,6 @@ void PairSmdMpm::GridToPoints() {
 	double **v = atom->v;
 	double **f = atom->f;
 	double *rmass = atom->rmass;
-	tagint *mol = atom->molecule;
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
 	int i, itype;
@@ -754,7 +776,7 @@ void PairSmdMpm::UpdateDeformationGradient() {
 	 */
 	error->one(FLERR, "should not be here");
 
-	// given the velocity gradient, update the deformation gradient
+// given the velocity gradient, update the deformation gradient
 	double **smd_data_9 = atom->smd_data_9;
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
@@ -762,7 +784,7 @@ void PairSmdMpm::UpdateDeformationGradient() {
 	Matrix3d F, Fincr, eye;
 	eye.setIdentity();
 
-	// transfer particle velocities to grid nodes
+// transfer particle velocities to grid nodes
 	for (i = 0; i < nlocal; i++) {
 
 		itype = type[i];
@@ -830,6 +852,8 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 		stressTensor = new Matrix3d[nmax];
 		delete[] L;
 		L = new Matrix3d[nmax];
+		delete[] F;
+		F = new Matrix3d[nmax];
 		delete[] numNeighs;
 		numNeighs = new int[nmax];
 		delete[] particleVelocities;
@@ -844,9 +868,9 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 	PointsToGrid();
 	ApplyVelocityBC();
 	ComputeVelocityGradient(); // using current velocities
-	//UpdateDeformationGradient();
-	//UpdateStress();
-	//GetStress();
+//UpdateDeformationGradient();
+//UpdateStress();
+//GetStress();
 	AssembleStressTensor();
 	comm->forward_comm_pair(this);
 	ComputeGridForces();
@@ -964,12 +988,12 @@ void PairSmdMpm::AssembleStressTensor() {
 	double **tlsph_stress = atom->smd_stress;
 	double *e = atom->e;
 	double *de = atom->de;
-	//double **x = atom->x;
+//double **x = atom->x;
 	int *type = atom->type;
 	double pFinal;
 	int i, itype;
 	int nlocal = atom->nlocal;
-	Matrix3d D, Ddev, W, V, sigma_diag;
+	Matrix3d E, D, Ddev, W, V, sigma_diag;
 	Matrix3d eye, stressRate, StressRateDevJaumann;
 	Matrix3d sigmaInitial_dev, d_dev, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
 	double plastic_strain_increment, yieldStress;
@@ -995,8 +1019,24 @@ void PairSmdMpm::AssembleStressTensor() {
 			K_eff = 0.0;
 			G_eff = 0.0;
 			D = 0.5 * (L[i] + L[i].transpose());
+			//E = 0.5 * (F[i].transpose() * F[i] - eye);
+			//E /= update->dt;
+
 			d_iso = D.trace();
+
+			//double vol_strain = F[i].trace();
+			//vfrac[i] += update->dt * vfrac[i] * vol_strain; // update the volume
+			//vfrac[i] *= F[i].determinant();
+
 			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
+
+//			if (vfrac[i] < 5.2e-4) {
+//				//printf("Edot, d traces are %g %g\n", E.trace(), d_iso);
+//				double vol_test = 5.444e-4 * F[i].determinant();
+//				printf("vfrac, J vol = %f %f\n", vfrac[i], vol_test);
+//				//cout << "this is nabla U" << endl << F[i] << endl << endl;
+//			}
+
 			vol = vfrac[i];
 			rho = rmass[i] / vol;
 
@@ -1081,7 +1121,7 @@ void PairSmdMpm::AssembleStressTensor() {
 					break;
 				}
 
-				StressRateDevJaumann = stressRateDev - W * oldStressDeviator + oldStressDeviator * W;
+				StressRateDevJaumann = stressRateDev; // - W * oldStressDeviator + oldStressDeviator * W;
 				newStressDeviator = oldStressDeviator + dt * StressRateDevJaumann;
 
 				tlsph_stress[i][0] = newStressDeviator(0, 0);

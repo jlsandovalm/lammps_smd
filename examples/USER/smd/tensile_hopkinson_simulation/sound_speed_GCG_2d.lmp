@@ -13,9 +13,9 @@ variable         G0 equal 0.0
 variable         lstr equal 1000 # length striker bar [mm]
 variable         lin equal 7000 # length input bar: from end of striker to end of input bar [mm]
 variable         lsamp equal 7100 # length sample
-variable         lout equal 10100 # length input bar [mm]
+variable         lout equal 10100 # length output bar [mm]
 variable         rho_bar equal 2.7e-6 # input, output and striker bars mass density
-variable         rho_sample equal 10*2.7e-6 # mass density of sample
+variable         rho_sample equal 1.2*2.7e-6 # mass density of sample
 
 # location of strain gauges
 variable         loc_dms1 equal round(4000/${l0}) # index of particle which represents dms 1
@@ -59,8 +59,8 @@ set             region reg_samp   smd_mass_density ${rho_sample}
 set             region reg_out    smd_mass_density ${rho_bar}
 
 # INTERACTION
-pair_style      smd/peri_pmb
-pair_coeff      * * ${K} ${smax} ${G0} ${visc} ${syield}
+pair_style      smd/peri_ipmb
+pair_coeff      * * ${rho_bar} ${K} ${smax} ${G0} ${visc} ${syield} 0
 
 # Compute damage for each particle 
 compute         peatom all pe/atom
@@ -70,7 +70,7 @@ variable        sig_dms1 equal -v_stressx[${loc_dms1}]
 variable        sig_dms_samp equal -v_stressx[${loc_dms_samp}]
 
 # dump output
-dump            D1 all custom 100 dump.LAMMPS id type x y z c_stress[1] vx mass
+dump            D1 all custom 100 dump.LAMMPS id type x y z c_stress[1] vx mass fx
 dump_modify     D1 first yes
                 
 neighbor        ${l0} bin
