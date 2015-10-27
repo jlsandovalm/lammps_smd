@@ -490,9 +490,9 @@ void PairSmdMpm::ComputeVelocityGradient() {
 						g(2) = wfdz * wfx * wfy;
 
 						if (APIC) {
-						vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
+							vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
 						} else {
-						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
+							vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
 						}
 						velocity_gradient += vel_grid * g.transpose();
 
@@ -864,18 +864,27 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 	}
 
 	CreateGrid();
+
 	comm->forward_comm_pair(this); // need to do one forward comm here to have APIC Bp on ghosts
 	PointsToGrid();
-	ApplyVelocityBC();
+
+	// update strains and stresses -- 1st time
 	ComputeVelocityGradient(); // using current velocities
-//UpdateDeformationGradient();
-//UpdateStress();
-//GetStress();
-	AssembleStressTensor();
+	UpdateStress();
+	GetStress();
+
+	ApplyVelocityBC();
+
 	comm->forward_comm_pair(this);
 	ComputeGridForces();
 	UpdateGridVelocities();
+
+	// update material points
 	GridToPoints();
+
+	//ComputeVelocityGradient(); // using current velocities
+	//UpdateStress();
+	//GetStress();
 
 	DestroyGrid();
 
@@ -883,33 +892,23 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 
 void PairSmdMpm::UpdateStress() {
 	double **tlsph_stress = atom->smd_stress;
-	double **smd_data_9 = atom->smd_data_9;
 	double *de = atom->de;
 	double *vfrac = atom->vfrac;
 	int *type = atom->type;
-	Matrix3d D, eye, d_dev, stressRate, oldStress, newStress, F, E;
+	Matrix3d D, eye, d_dev, stressRate, oldStress, newStress;
 	double d_iso;
 	int i, itype;
 	int nlocal = atom->nlocal;
 	eye.setIdentity();
 
 	dtCFL = BIG;
+	double FACTOR = 1.0;
 
 	for (i = 0; i < nlocal; i++) {
 		itype = type[i];
 		if (setflag[itype][itype] == 1) {
 
-			F(0, 0) = smd_data_9[i][0];
-			F(0, 1) = smd_data_9[i][1];
-			F(0, 2) = smd_data_9[i][2];
 
-			F(1, 0) = smd_data_9[i][3];
-			F(1, 1) = smd_data_9[i][4];
-			F(1, 2) = smd_data_9[i][5];
-
-			F(2, 0) = smd_data_9[i][6];
-			F(2, 1) = smd_data_9[i][7];
-			F(2, 2) = smd_data_9[i][8];
 
 			oldStress(0, 0) = tlsph_stress[i][0];
 			oldStress(0, 1) = tlsph_stress[i][1];
@@ -924,10 +923,10 @@ void PairSmdMpm::UpdateStress() {
 			D = 0.5 * (L[i] + L[i].transpose());
 			d_dev = Deviator(D);
 			d_iso = D.trace();
-			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
+			vfrac[i] += FACTOR * update->dt * vfrac[i] * d_iso; // update the volume
 
 			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
-			newStress = oldStress + 1.0 * update->dt * stressRate;
+			newStress = oldStress + FACTOR * update->dt * stressRate;
 
 			tlsph_stress[i][0] = newStress(0, 0);
 			tlsph_stress[i][1] = newStress(0, 1);
@@ -948,7 +947,7 @@ void PairSmdMpm::UpdateStress() {
 			 * potential energy
 			 */
 
-			de[i] += vfrac[i] * (newStress.cwiseProduct(D)).sum();
+			de[i] += 0.5 * vfrac[i] * (newStress.cwiseProduct(D)).sum();
 		}
 	}
 
