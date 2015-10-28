@@ -489,11 +489,11 @@ void PairSmdMpm::ComputeVelocityGradient() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						if (APIC) {
-							vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
-						} else {
+						//if (APIC) {
+						//	vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
+						//} else {
 							vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
-						}
+						//}
 						velocity_gradient += vel_grid * g.transpose();
 
 						displacement_gradient += gridnodes[jx][jy][jz].u * g.transpose();
@@ -870,8 +870,10 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 
 	// update strains and stresses -- 1st time
 	ComputeVelocityGradient(); // using current velocities
-	UpdateStress();
-	GetStress();
+
+	//UpdateStress();
+	//GetStress();
+	AssembleStressTensor();
 
 	ApplyVelocityBC();
 

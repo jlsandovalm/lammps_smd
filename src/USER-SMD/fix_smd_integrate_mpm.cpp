@@ -175,6 +175,7 @@ void FixSMDIntegrateMpm::final_integrate() {
 	double *rmass = atom->rmass;
 	double *e = atom->e;
 	double *de = atom->de;
+	double ovx, ovy, ovz;
 
 	int *mask = atom->mask;
 	int nlocal = atom->nlocal;
@@ -207,6 +208,10 @@ void FixSMDIntegrateMpm::final_integrate() {
 				}
 			}
 
+			ovx = v[i][0];
+			ovy = v[i][1];
+			ovz = v[i][2];
+
 			// mixed FLIP-PIC
 			v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
 					+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
@@ -225,9 +230,13 @@ void FixSMDIntegrateMpm::final_integrate() {
 				vest[i][2] = v[i][2];
 			}
 
-			f[i][0] = rmass[i] * particleAccelerations[i](0);
-			f[i][1] = rmass[i] * particleAccelerations[i](1);
-			f[i][2] = rmass[i] * particleAccelerations[i](2);
+			f[i][0] = rmass[i] * (v[i][0] - ovx);
+			f[i][1] = rmass[i] * (v[i][1] - ovy);
+			f[i][2] = rmass[i] * (v[i][2] - ovz);
+
+//			f[i][0] = rmass[i] * particleAccelerations[i](0);
+//			f[i][1] = rmass[i] * particleAccelerations[i](1);
+//			f[i][2] = rmass[i] * particleAccelerations[i](2);
 
 			e[i] += dtv * de[i];
 

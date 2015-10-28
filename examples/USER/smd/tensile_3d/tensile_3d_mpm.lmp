@@ -1,0 +1,117 @@
+#processors      4 1 1
+variable        rho equal 2700.0e-9
+variable        h equal 0.82
+variable        E equal 10 # Young's modulus
+variable        nu equal 0.3 # Poisson ratio
+variable        sigy equal 0.1
+variable        vel equal 1.00
+variable        hg equal 0.0
+variable        cp equal 1
+variable        q1 equal 0
+variable        mpm_cellsize equal 3
+# ----
+variable        K equal ${E}/(3*(1-2*${nu}))
+variable        G equal ${E}/(2*(1+${nu}))
+variable        c0 equal sqrt((${K}+4*${G}/3.)/${rho})
+variable        dt equal 0.125*${h}/${c0}
+print           "sound speed is ${c0}, CFL timestep is ${dt}"
+variable        skin equal 0.5*${h} # Verlet list range
+variable        contact_stiffness equal 1*${E}
+
+variable        sigy equal 0.3
+
+units		si
+dimension       3
+boundary        s s s
+atom_style      smd
+comm_style      brick
+neighbor        ${skin} bin
+neigh_modify    every 100 delay 0 check no # only build neighbor list if particle has moved half the skin distance
+comm_modify     vel yes
+newton          off
+atom_modify     map array
+
+read_data       h4_adjusted.data
+variable        xmin equal bound(all,xmin)
+variable        xminplus equal ${xmin}+15.0
+variable        xmax equal bound(all,xmax)
+variable        xmaxminus equal ${xmax}-15.0
+variable        L0 equal ${xmaxminus}-${xminplus}
+region          bot block EDGE ${xminplus} EDGE EDGE EDGE EDGE units box
+region          top block ${xmaxminus} EDGE EDGE EDGE EDGE EDGE units box
+group           top region top
+group           bot region bot
+set             group top mol 1000
+set             group bot mol 1000
+
+
+
+
+####################################################################################################
+# INTERACTION PHYSICS / MATERIAL MODEL
+# We use polynomial EOS for the pressure and the Johnson Cook strength model
+# An integration point fails (cannot support tension anymore) if the plastic strain exceeds 0.5.
+####################################################################################################
+pair_style      smd/mpm ${mpm_cellsize}
+pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
+                *EOS_LINEAR &
+                *STRENGTH_LINEAR_PLASTIC ${G} ${sigy} 0 &
+                *END
+
+
+compute         P all smd/plastic_strain
+compute         Pdot all smd/plastic_strain_rate
+compute         S all smd/ulsph_stress
+compute         d all smd/damage
+compute         contact_radius all smd/contact_radius
+compute         eint all smd/internal_energy
+compute         alleint all reduce sum c_eint
+#compute         sumforce BCL reduce sum fx
+variable        etot equal ke+c_alleint+pe
+compute         vol all smd/volume
+
+balance         1.0 shift x 20 1.0
+
+# time integration
+timestep        ${dt}
+variable        maxdist equal ${h}
+fix             dtfix all smd/adjust_dt 0.5
+
+
+fix             force_fix1 top smd/setvelocity ${vel} 0 0
+fix             force_fix2 bot smd/setvelocity -${vel} 0 0
+fix             integration_fix all smd/integrate_mpm FLIP 0.95
+
+
+
+variable        force equal 0.5*(f_force_fix2[1]-f_force_fix1[1])
+variable        disp equal 2.0*${vel}*f_dtfix
+variable        strain equal v_disp/${L0}
+variable        stress equal v_force/150
+fix             output_fix all print 10 "${disp} ${force} ${strain} ${stress}" file force_displacement_mpm.dat screen no
+
+
+variable        nrun equal round((10.0/${vel})/${dt})
+print "running for ${nrun} steps"
+
+variable        dumpFreq equal round(${nrun}/1000)
+dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
+                c_S[1] c_S[2] c_S[3] c_S[4] c_S[5] c_S[6] &
+                fx fy fz vx vy vz c_P c_eint &
+		c_contact_radius mol c_d mass c_Pdot
+
+dump_modify     dump_id first yes
+
+thermo          100
+thermo_style    custom step ke pe v_etot c_alleint dt f_dtfix time f_dtfix[1] c_vol
+#thermo_style    custom step f_dtfix f_dtfix[1] dt time
+#thermo_modify   lost ignore
+
+run            	10000 #${nrun}
+
+#velocity        top set -${vel} 0 0 sum no units box
+#velocity        bot set ${vel} 0 0 sum no units box
+#run             20000
+#
+#
+#
