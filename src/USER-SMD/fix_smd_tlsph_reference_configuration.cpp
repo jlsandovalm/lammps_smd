@@ -52,7 +52,7 @@ using namespace std;
 using namespace SMD_Math;
 #define DELTA 16384
 
-#define INSERT_PREDEFINED_CRACKS false
+#define INSERT_PREDEFINED_CRACKS true
 
 /* ---------------------------------------------------------------------- */
 
