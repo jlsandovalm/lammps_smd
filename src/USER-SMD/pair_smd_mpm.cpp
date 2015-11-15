@@ -295,7 +295,7 @@ void PairSmdMpm::PointsToGrid() {
 						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 						if (APIC) {
-							vel_APIC = Cp * dx + vel_particle; // this is the APIC corrected velocity
+							vel_APIC = 0.99 * Cp * dx + vel_particle; // this is the APIC corrected velocity
 							gridnodes[jx][jy][jz].vx += wf * rmass[i] * vel_APIC(0);
 							gridnodes[jx][jy][jz].vy += wf * rmass[i] * vel_APIC(1);
 							gridnodes[jx][jy][jz].vz += wf * rmass[i] * vel_APIC(2);
@@ -402,9 +402,12 @@ void PairSmdMpm::ApplyVelocityBC() {
 							wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 							if (wf > 0.0) {
-								//gridnodes[jx][jy][jz].vx = vel_particle(0);
-								//gridnodes[jx][jy][jz].vy = vel_particle(1);
-								//gridnodes[jx][jy][jz].vz = vel_particle(2);
+								gridnodes[jx][jy][jz].vx = vel_particle(0);
+								gridnodes[jx][jy][jz].vy = vel_particle(1);
+								gridnodes[jx][jy][jz].vz = vel_particle(2);
+								gridnodes[jx][jy][jz].vestx = vel_particle(0);
+								gridnodes[jx][jy][jz].vesty = vel_particle(1);
+								gridnodes[jx][jy][jz].vestz = vel_particle(2);
 								gridnodes[jx][jy][jz].isVelocityBC = true;
 							}
 
@@ -492,7 +495,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 						//if (APIC) {
 						//	vel_grid << gridnodes[jx][jy][jz].vx, gridnodes[jx][jy][jz].vy, gridnodes[jx][jy][jz].vz;
 						//} else {
-							vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
+						vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
 						//}
 						velocity_gradient += vel_grid * g.transpose();
 
@@ -632,6 +635,7 @@ void PairSmdMpm::GridToPoints() {
 	double **f = atom->f;
 	double *rmass = atom->rmass;
 	int *type = atom->type;
+	tagint *mol = atom->molecule;
 	int nlocal = atom->nlocal;
 	int i, itype;
 	int ix, iy, iz, jx, jy, jz;
@@ -746,19 +750,19 @@ void PairSmdMpm::GridToPoints() {
 			f[i][1] = rmass[i] * particleAccelerations[i](1);
 			f[i][2] = rmass[i] * particleAccelerations[i](2);
 
-//			if (mol[i] == 1000) {
-//
-//				Vector3d oldvel;
-//				oldvel << v[i][0], v[i][1], v[i][2];
-//
-//				if ((oldvel - particleVelocities[i]).norm() > 1.0e-8) {
-//					cout << " this is old vel " << oldvel.transpose() << endl;
-//					cout << " this is new vel " << particleVelocities[i].transpose() << endl << endl;
-//				}
-//
-//				particleVelocities[i] << v[i][0], v[i][1], v[i][2];
-//				particleAccelerations[i].setZero();
-//			}
+			if (mol[i] == 1000) {
+
+				Vector3d oldvel;
+				oldvel << v[i][0], v[i][1], v[i][2];
+
+				if ((oldvel - particleVelocities[i]).norm() > 1.0e-8) {
+					cout << " this is old vel " << oldvel.transpose() << endl;
+					cout << " this is new vel " << particleVelocities[i].transpose() << endl << endl;
+				}
+
+				particleVelocities[i] << v[i][0], v[i][1], v[i][2];
+				particleAccelerations[i].setZero();
+			}
 
 		} // end if (setflag[itype][itype])
 	}
@@ -910,8 +914,6 @@ void PairSmdMpm::UpdateStress() {
 		itype = type[i];
 		if (setflag[itype][itype] == 1) {
 
-
-
 			oldStress(0, 0) = tlsph_stress[i][0];
 			oldStress(0, 1) = tlsph_stress[i][1];
 			oldStress(0, 2) = tlsph_stress[i][2];
@@ -1024,19 +1026,7 @@ void PairSmdMpm::AssembleStressTensor() {
 			//E /= update->dt;
 
 			d_iso = D.trace();
-
-			//double vol_strain = F[i].trace();
-			//vfrac[i] += update->dt * vfrac[i] * vol_strain; // update the volume
-			//vfrac[i] *= F[i].determinant();
-
 			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
-
-//			if (vfrac[i] < 5.2e-4) {
-//				//printf("Edot, d traces are %g %g\n", E.trace(), d_iso);
-//				double vol_test = 5.444e-4 * F[i].determinant();
-//				printf("vfrac, J vol = %f %f\n", vfrac[i], vol_test);
-//				//cout << "this is nabla U" << endl << F[i] << endl << endl;
-//			}
 
 			vol = vfrac[i];
 			rho = rmass[i] / vol;

@@ -152,9 +152,9 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 	for (i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
 
-			x0[i][0] = x[i][0];
-			x0[i][1] = x[i][1];
-			x0[i][2] = x[i][2];
+//			x0[i][0] = x[i][0];
+//			x0[i][1] = x[i][1];
+//			x0[i][2] = x[i][2];
 
 			x[i][0] += dtv * v[i][0];
 			x[i][1] += dtv * v[i][1];
@@ -230,9 +230,9 @@ void FixSMDIntegrateMpm::final_integrate() {
 				vest[i][2] = v[i][2];
 			}
 
-			f[i][0] = rmass[i] * (v[i][0] - ovx);
-			f[i][1] = rmass[i] * (v[i][1] - ovy);
-			f[i][2] = rmass[i] * (v[i][2] - ovz);
+//			f[i][0] = rmass[i] * (v[i][0] - ovx);
+//			f[i][1] = rmass[i] * (v[i][1] - ovy);
+//			f[i][2] = rmass[i] * (v[i][2] - ovz);
 
 //			f[i][0] = rmass[i] * particleAccelerations[i](0);
 //			f[i][1] = rmass[i] * particleAccelerations[i](1);

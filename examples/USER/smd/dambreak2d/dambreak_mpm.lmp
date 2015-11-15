@@ -89,7 +89,7 @@ group           container type 2
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
 pair_style      hybrid/overlay smd/tri_surface 1.0 &
-                smd/mpm ${mpm_cellsize} APIC
+                smd/mpm ${mpm_cellsize}
 pair_coeff      1 1 smd/mpm   *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
                               *VISCOSITY_NEWTON 0.0 &
@@ -101,7 +101,7 @@ pair_coeff      1 2 smd/tri_surface ${contact_stiffness}
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water water smd/integrate_mpm FLIP 0
+fix             integration_fix_water water smd/integrate_mpm FLIP 1
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT

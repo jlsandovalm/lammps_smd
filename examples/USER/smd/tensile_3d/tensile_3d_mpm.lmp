@@ -8,7 +8,7 @@ variable        vel equal 1.00
 variable        hg equal 0.0
 variable        cp equal 1
 variable        q1 equal 0
-variable        mpm_cellsize equal 3
+variable        mpm_cellsize equal 1
 # ----
 variable        K equal ${E}/(3*(1-2*${nu}))
 variable        G equal ${E}/(2*(1+${nu}))
@@ -52,10 +52,10 @@ set             group bot mol 1000
 # We use polynomial EOS for the pressure and the Johnson Cook strength model
 # An integration point fails (cannot support tension anymore) if the plastic strain exceeds 0.5.
 ####################################################################################################
-pair_style      smd/mpm ${mpm_cellsize}
+pair_style      smd/mpm ${mpm_cellsize} 
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
                 *EOS_LINEAR &
-                *STRENGTH_LINEAR_PLASTIC ${G} ${sigy} 0 &
+                *STRENGTH_LINEAR_PLASTIC ${G} ${sigy} 1 &
                 *END
 
 
@@ -80,7 +80,7 @@ fix             dtfix all smd/adjust_dt 0.5
 
 fix             force_fix1 top smd/setvelocity ${vel} 0 0
 fix             force_fix2 bot smd/setvelocity -${vel} 0 0
-fix             integration_fix all smd/integrate_mpm FLIP 0.95
+fix             integration_fix all smd/integrate_mpm FLIP 0
 
 
 
