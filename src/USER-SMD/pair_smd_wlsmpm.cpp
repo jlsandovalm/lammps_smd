@@ -60,8 +60,8 @@ using namespace Eigen;
 #define BIG 1.0e22
 #define MIN_MATRIX_DETERMINANT 1.0e-8
 #define MASS_CUTOFF 1.0e-30
-#define STENCIL_LOW 3
-#define STENCIL_HIGH 4
+#define STENCIL_LOW 1
+#define STENCIL_HIGH 3
 #define GRID_OFFSET 4
 
 PairSmdWlsMpm::PairSmdWlsMpm(LAMMPS *lmp) :
@@ -246,59 +246,60 @@ void PairSmdWlsMpm::PointsToGrid() {
 				dx(0) = delx_scaled * cellsize;
 				delx_scaled_abs = fabs(delx_scaled);
 				wfx = DisneyKernel(delx_scaled_abs);
+				if (wfx > 0.0) {
 
-				for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
+					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
-					if ((jy < 0) || (jy >= grid_ny)) {
-						printf("y cell indey %d is outside range 0 .. %d\n", jy, grid_ny);
-						error->one(FLERR, "");
-					}
-
-					dely_scaled = py_shifted * icellsize - 1.0 * jy;
-					dx(1) = dely_scaled * cellsize;
-					dely_scaled_abs = fabs(dely_scaled);
-					wfy = DisneyKernel(dely_scaled_abs);
-
-					for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
-
-						if ((jz < 0) || (jz >= grid_nz)) {
-							printf("z cell index %d is outside range 0 .. %d\n", jz, grid_nz);
+						if ((jy < 0) || (jy >= grid_ny)) {
+							printf("y cell indey %d is outside range 0 .. %d\n", jy, grid_ny);
 							error->one(FLERR, "");
 						}
 
-						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
-						dx(2) = delz_scaled * cellsize;
-						delz_scaled_abs = fabs(delz_scaled);
-						wfz = DisneyKernel(delz_scaled_abs);
+						dely_scaled = py_shifted * icellsize - 1.0 * jy;
+						dx(1) = dely_scaled * cellsize;
+						dely_scaled_abs = fabs(dely_scaled);
+						wfy = DisneyKernel(dely_scaled_abs);
+						if (wfy > 0.0) {
 
-						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
+							for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
-						gridnodes[jx][jy][jz].vx += wf * rmass[i] * vel_particle(0);
-						gridnodes[jx][jy][jz].vy += wf * rmass[i] * vel_particle(1);
-						gridnodes[jx][jy][jz].vz += wf * rmass[i] * vel_particle(2);
+								if ((jz < 0) || (jz >= grid_nz)) {
+									printf("z cell index %d is outside range 0 .. %d\n", jz, grid_nz);
+									error->one(FLERR, "");
+								}
 
-						gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vel_particle_est(0);
-						gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vel_particle_est(1);
-						gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vel_particle_est(2);
+								delz_scaled = pz_shifted * icellsize - 1.0 * jz;
+								dx(2) = delz_scaled * cellsize;
+								delz_scaled_abs = fabs(delz_scaled);
+								wfz = DisneyKernel(delz_scaled_abs);
+								if (wfz > 0.0) {
 
-						gridnodes[jx][jy][jz].u += wf * rmass[i] * displacement;
-						gridnodes[jx][jy][jz].mass += wf * rmass[i];
+									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
-						// build moment matrix on grid nodes
-						l << 1.0, dx(0), dx(1), dx(2);
+									gridnodes[jx][jy][jz].vx += wf * rmass[i] * vel_particle(0);
+									gridnodes[jx][jy][jz].vy += wf * rmass[i] * vel_particle(1);
+									gridnodes[jx][jy][jz].vz += wf * rmass[i] * vel_particle(2);
 
-						l *= icellsize * icellsize;
+									gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vel_particle_est(0);
+									gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vel_particle_est(1);
+									gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vel_particle_est(2);
 
-						//l << 1.0, 100*delx_scaled, 100*dely_scaled, 100*delz_scaled;
+									gridnodes[jx][jy][jz].u += wf * rmass[i] * displacement;
+									gridnodes[jx][jy][jz].mass += wf * rmass[i];
 
-						//cout <<
+									// build moment matrix on grid nodes
+									l << 1.0, delx_scaled, dely_scaled, delz_scaled;
+									//cout << "this is l: " << l.transpose() << " this is wf: " << wf << endl;
+									//cout << "dimensionless distance: " << dx.norm() * icellsize << " this is wf: " << wf << endl;
 
-						gridnodes[jx][jy][jz].l_vx += wf * vel_particle(0) * l;
-						gridnodes[jx][jy][jz].l_vy += wf * vel_particle(1) * l;
-						gridnodes[jx][jy][jz].l_vz += wf * vel_particle(2) * l;
-						gridnodes[jx][jy][jz].M += wf * l * l.transpose();
+									gridnodes[jx][jy][jz].l_vx += wf * vel_particle(0) * l;
+									gridnodes[jx][jy][jz].l_vy += wf * vel_particle(1) * l;
+									gridnodes[jx][jy][jz].l_vz += wf * vel_particle(2) * l;
+									gridnodes[jx][jy][jz].M += wf * l * l.transpose();
+								}
+							}
+						}
 					}
-
 				}
 			} // end loop over x cell index
 		} // end if setflag[itype][itype]
@@ -317,14 +318,26 @@ void PairSmdWlsMpm::PointsToGrid() {
 					gridnodes[ix][iy][iz].vestz /= gridnodes[ix][iy][iz].mass;
 					gridnodes[ix][iy][iz].u /= gridnodes[ix][iy][iz].mass;
 
+					if (domain->dimension == 2) {
+						/*
+						 * WLS moment matrix will have undefined z components.
+						 * Take care of this by augmenting the (1 x y) space with diagonal entry for z so
+						 * matrix inversion below will be successful.
+						 */
+						gridnodes[ix][iy][iz].M.row(3).setZero();
+						gridnodes[ix][iy][iz].M.col(3).setZero();
+						gridnodes[ix][iy][iz].M(3,3) = 1.0;
+					}
+
 					// obtain WLS solution for grid node values
 					if (fabs(gridnodes[ix][iy][iz].M.determinant()) > MIN_MATRIX_DETERMINANT) {
 						Minv = gridnodes[ix][iy][iz].M.inverse();
-						gridnodes[ix][iy][iz].l_vx = Minv * gridnodes[ix][iy][iz].l_vx * cellsize * cellsize;
+						gridnodes[ix][iy][iz].M = Minv;
+						gridnodes[ix][iy][iz].l_vx = Minv * gridnodes[ix][iy][iz].l_vx * icellsize; // divide by h here to account for use of scaled distances above
 						gridnodes[ix][iy][iz].vx = gridnodes[ix][iy][iz].l_vx(0);
-						gridnodes[ix][iy][iz].l_vy = Minv * gridnodes[ix][iy][iz].l_vy;
+						gridnodes[ix][iy][iz].l_vy = Minv * gridnodes[ix][iy][iz].l_vy * icellsize;
 						gridnodes[ix][iy][iz].vy = gridnodes[ix][iy][iz].l_vy(0);
-						gridnodes[ix][iy][iz].l_vz = Minv * gridnodes[ix][iy][iz].l_vz;
+						gridnodes[ix][iy][iz].l_vz = Minv * gridnodes[ix][iy][iz].l_vz * icellsize;
 						gridnodes[ix][iy][iz].vz = gridnodes[ix][iy][iz].l_vz(0);
 
 						/*
@@ -332,16 +345,18 @@ void PairSmdWlsMpm::PointsToGrid() {
 						 */
 						gridnodes[ix][iy][iz].isAccurate = true;
 
-						cout << "==================================================" << endl;
-						cout << "this is vx: " << gridnodes[ix][iy][iz].vx << endl;
-						cout << "this is nodal M" << endl << gridnodes[ix][iy][iz].M << endl << endl;
+//						cout << "==================================================" << endl;
+//						cout << "this is vx: " << gridnodes[ix][iy][iz].vx << endl;
+//						cout << "this is nodal M" << endl << gridnodes[ix][iy][iz].M << endl << endl;
 						//cout << "this is nodal M inverted " << endl << gridnodes[ix][iy][iz].M.inverse() << endl << endl;
 						//cout << "this is l_vx                " << gridnodes[ix][iy][iz].l_vx.transpose() << endl;
 						// << "this is the solution vector " << l.transpose() << endl << endl;
 						//cout << "this is the difference between C0 and C1 interpolation of vx: " << gridnodes[ix][iy][iz].vx - l(0) << endl;
 
 					} else {
-						cout << "cannot invert nodal M with det = " << gridnodes[ix][iy][iz].M.determinant() << endl << gridnodes[ix][iy][iz].M << endl << endl;
+						gridnodes[ix][iy][iz].M.setZero();
+//						cout << "cannot invert nodal M with det = " << gridnodes[ix][iy][iz].M.determinant() << endl
+//								<< gridnodes[ix][iy][iz].M << endl << endl;
 					}
 
 				}
@@ -541,6 +556,7 @@ void PairSmdWlsMpm::ComputeGridForces() {
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf, wfdx, wfdy;
 	double delz_scaled, delz_scaled_abs, wfz, wfdz, vol;
 	Matrix3d scaledStress;
+	Vector4d l, g4;
 
 // ---- compute internal forces ---
 	for (i = 0; i < nall; i++) {
@@ -563,46 +579,32 @@ void PairSmdWlsMpm::ComputeGridForces() {
 
 				delx_scaled = px_shifted * icellsize - 1.0 * jx;
 				delx_scaled_abs = fabs(delx_scaled);
-				dx(0) = delx_scaled * cellsize;
 				wfx = DisneyKernel(delx_scaled_abs);
-				wfdx = DisneyKernelDerivative(delx_scaled_abs) * icellsize;
-				if (delx_scaled < 0.0)
-					wfdx = -wfdx;
 
 				for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
 					dely_scaled = py_shifted * icellsize - 1.0 * jy;
 					dely_scaled_abs = fabs(dely_scaled);
-					dx(1) = dely_scaled * cellsize;
 					wfy = DisneyKernel(dely_scaled_abs);
-					wfdy = DisneyKernelDerivative(dely_scaled_abs) * icellsize;
-					if (dely_scaled < 0.0)
-						wfdy = -wfdy;
 
 					for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
 						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
 						delz_scaled_abs = fabs(delz_scaled);
-						dx(2) = delz_scaled * cellsize;
 						wfz = DisneyKernel(delz_scaled_abs);
-						wfdz = DisneyKernelDerivative(delz_scaled_abs) * icellsize;
-						if (delz_scaled < 0.0)
-							wfdz = -wfdz;
 
 						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
-						g(0) = wfdx * wfy * wfz; // this is the kernel gradient
-						g(1) = wfdy * wfx * wfz;
-						g(2) = wfdz * wfx * wfy;
 
+						l << 1.0, delx_scaled, dely_scaled, delz_scaled;
+						g4 = gridnodes[jx][jy][jz].M * l * icellsize;
+
+						g << g4(1), g4(2), g4(3);
 						force = scaledStress * g; // this is the force from the divergence of the stress field
 
-						//g = -wf * dx;
-						//force = scaledStress * gridnodes[jx][jy][jz].M * g;
-
-						//force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
-						//force(1) += wf * f[i][1];
-						//force(2) += wf * f[i][2];
+						force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
+						force(1) += wf * f[i][1];
+						force(2) += wf * f[i][2];
 
 						gridnodes[jx][jy][jz].fx += force(0);
 						gridnodes[jx][jy][jz].fy += force(1);
@@ -1838,7 +1840,7 @@ void PairSmdWlsMpm::DumpGrid() {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
 				if (gridnodes[ix][iy][iz].isAccurate) {
-					fprintf(f, "X %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].l_vx(0));
+					fprintf(f, "X %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].l_vx(1));
 				} else {
 					fprintf(f, "Y %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, -999.0);
 				}
