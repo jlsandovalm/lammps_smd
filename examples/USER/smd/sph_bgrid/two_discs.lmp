@@ -43,13 +43,13 @@ set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
 set             group all smd_contact_radius ${cr}
 
-pair_style      hybrid/overlay  smd/hertz 1.0 smd/mpm ${l0} APIC
+pair_style      hybrid/overlay  smd/hertz 1.0 smd/wlsmpm ${l0}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
-pair_coeff      1 1 smd/mpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+pair_coeff      1 1 smd/wlsmpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
                 *STRENGTH_LINEAR ${G} &
 	        *END
-pair_coeff      2 2 smd/mpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+pair_coeff      2 2 smd/wlsmpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
                 *STRENGTH_LINEAR ${G} &
 	        *END
@@ -89,4 +89,4 @@ fix extra all print 1 "${ekin} ${epot} ${eint} ${etot}" file energy.dat screen n
 velocity        disc1 set 0.0707 0.0707 0 units box
 velocity        disc2 set -0.0707 -0.0707 0 units box
 
-run  200
+run  0
