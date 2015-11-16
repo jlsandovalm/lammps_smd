@@ -197,20 +197,27 @@ void PairSmdWlsMpm::PointsToGrid() {
 				gridnodes[ix][iy][iz].vx = 0.0;
 				gridnodes[ix][iy][iz].vy = 0.0;
 				gridnodes[ix][iy][iz].vz = 0.0;
-				gridnodes[ix][iy][iz].vestx = 0.0;
-				gridnodes[ix][iy][iz].vesty = 0.0;
-				gridnodes[ix][iy][iz].vestz = 0.0;
 				gridnodes[ix][iy][iz].fx = 0.0;
 				gridnodes[ix][iy][iz].fy = 0.0;
 				gridnodes[ix][iy][iz].fz = 0.0;
 				gridnodes[ix][iy][iz].isVelocityBC = false;
-				gridnodes[ix][iy][iz].u.setZero();
-
 				gridnodes[ix][iy][iz].M.setZero();
 				gridnodes[ix][iy][iz].l_vx.setZero();
 				gridnodes[ix][iy][iz].l_vy.setZero();
 				gridnodes[ix][iy][iz].l_vz.setZero();
-				gridnodes[ix][iy][iz].dvxdx = 0.0;
+
+				gridnodes[ix][iy][iz].l_vestx.setZero();
+				gridnodes[ix][iy][iz].l_vesty.setZero();
+				gridnodes[ix][iy][iz].l_vestz.setZero();
+
+				gridnodes[ix][iy][iz].l_mass.setZero();
+
+//				gridnodes[ix][iy][iz].sxx.setZero();
+//				gridnodes[ix][iy][iz].syy.setZero();
+//				gridnodes[ix][iy][iz].szz.setZero();
+//				gridnodes[ix][iy][iz].sxy.setZero();
+//				gridnodes[ix][iy][iz].sxz.setZero();
+//				gridnodes[ix][iy][iz].syz.setZero();
 
 				gridnodes[ix][iy][iz].isAccurate = false;
 			}
@@ -232,7 +239,11 @@ void PairSmdWlsMpm::PointsToGrid() {
 
 			displacement << x[i][0] - x0[i][0], x[i][1] - x0[i][1], x[i][2] - x0[i][2];
 			vel_particle << v[i][0], v[i][1], v[i][2];
-			vel_particle_est << vest[i][0], vest[i][1], vest[i][2];
+			if (update->ntimestep == 0) {
+				vel_particle_est = vel_particle;
+			} else {
+				vel_particle_est << vest[i][0], vest[i][1], vest[i][2];
+			}
 
 			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
@@ -276,17 +287,6 @@ void PairSmdWlsMpm::PointsToGrid() {
 
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
-									gridnodes[jx][jy][jz].vx += wf * rmass[i] * vel_particle(0);
-									gridnodes[jx][jy][jz].vy += wf * rmass[i] * vel_particle(1);
-									gridnodes[jx][jy][jz].vz += wf * rmass[i] * vel_particle(2);
-
-									gridnodes[jx][jy][jz].vestx += wf * rmass[i] * vel_particle_est(0);
-									gridnodes[jx][jy][jz].vesty += wf * rmass[i] * vel_particle_est(1);
-									gridnodes[jx][jy][jz].vestz += wf * rmass[i] * vel_particle_est(2);
-
-									gridnodes[jx][jy][jz].u += wf * rmass[i] * displacement;
-									gridnodes[jx][jy][jz].mass += wf * rmass[i];
-
 									// build moment matrix on grid nodes
 									l << 1.0, delx_scaled, dely_scaled, delz_scaled;
 									//cout << "this is l: " << l.transpose() << " this is wf: " << wf << endl;
@@ -295,6 +295,20 @@ void PairSmdWlsMpm::PointsToGrid() {
 									gridnodes[jx][jy][jz].l_vx += wf * vel_particle(0) * l;
 									gridnodes[jx][jy][jz].l_vy += wf * vel_particle(1) * l;
 									gridnodes[jx][jy][jz].l_vz += wf * vel_particle(2) * l;
+
+									gridnodes[jx][jy][jz].l_vestx += wf * vel_particle_est(0) * l;
+									gridnodes[jx][jy][jz].l_vesty += wf * vel_particle_est(1) * l;
+									gridnodes[jx][jy][jz].l_vestz += wf * vel_particle_est(2) * l;
+
+									gridnodes[jx][jy][jz].l_mass += wf * rmass[i] * l;
+
+//									gridnodes[jx][jy][jz].sxx += wf * tlsph_stress[i][0] * l;
+//									gridnodes[jx][jy][jz].sxy += wf * tlsph_stress[i][1] * l;
+//									gridnodes[jx][jy][jz].sxz += wf * tlsph_stress[i][2] * l;
+//									gridnodes[jx][jy][jz].syy += wf * tlsph_stress[i][3] * l;
+//									gridnodes[jx][jy][jz].syz += wf * tlsph_stress[i][4] * l;
+//									gridnodes[jx][jy][jz].szz += wf * tlsph_stress[i][5] * l;
+
 									gridnodes[jx][jy][jz].M += wf * l * l.transpose();
 								}
 							}
@@ -309,15 +323,7 @@ void PairSmdWlsMpm::PointsToGrid() {
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
-				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
-					gridnodes[ix][iy][iz].vx /= gridnodes[ix][iy][iz].mass;
-					gridnodes[ix][iy][iz].vy /= gridnodes[ix][iy][iz].mass;
-					gridnodes[ix][iy][iz].vz /= gridnodes[ix][iy][iz].mass;
-					gridnodes[ix][iy][iz].vestx /= gridnodes[ix][iy][iz].mass;
-					gridnodes[ix][iy][iz].vesty /= gridnodes[ix][iy][iz].mass;
-					gridnodes[ix][iy][iz].vestz /= gridnodes[ix][iy][iz].mass;
-					gridnodes[ix][iy][iz].u /= gridnodes[ix][iy][iz].mass;
-
+				if (gridnodes[ix][iy][iz].l_mass(0) > MASS_CUTOFF) {
 					if (domain->dimension == 2) {
 						/*
 						 * WLS moment matrix will have undefined z components.
@@ -331,24 +337,51 @@ void PairSmdWlsMpm::PointsToGrid() {
 
 					// obtain WLS solution for grid node values
 					if (fabs(gridnodes[ix][iy][iz].M.determinant()) > MIN_MATRIX_DETERMINANT) {
+
+						/*
+						 * invert moment matrix and store it
+						 */
 						Minv = gridnodes[ix][iy][iz].M.inverse();
 						gridnodes[ix][iy][iz].M = Minv;
+
+						/*
+						 * particle mass -- gradient is not required
+						 */
+						gridnodes[ix][iy][iz].l_mass = Minv * gridnodes[ix][iy][iz].l_mass;
+						gridnodes[ix][iy][iz].mass = gridnodes[ix][iy][iz].l_mass(0);
+
+						gridnodes[ix][iy][iz].l_vestx = Minv * gridnodes[ix][iy][iz].l_vestx;
+						gridnodes[ix][iy][iz].l_vestx(1) *= icellsize; // divide by h here to account for use of scaled distances above
+						gridnodes[ix][iy][iz].l_vestx(2) *= icellsize;
+						gridnodes[ix][iy][iz].l_vestx(3) *= icellsize;
+						gridnodes[ix][iy][iz].l_vesty = Minv * gridnodes[ix][iy][iz].l_vesty;
+						gridnodes[ix][iy][iz].l_vesty(1) *= icellsize; // divide by h here to account for use of scaled distances above
+						gridnodes[ix][iy][iz].l_vesty(2) *= icellsize;
+						gridnodes[ix][iy][iz].l_vesty(3) *= icellsize;
+						gridnodes[ix][iy][iz].l_vestz = Minv * gridnodes[ix][iy][iz].l_vestz;
+						gridnodes[ix][iy][iz].l_vestz(1) *= icellsize; // divide by h here to account for use of scaled distances above
+						gridnodes[ix][iy][iz].l_vestz(2) *= icellsize;
+						gridnodes[ix][iy][iz].l_vestz(3) *= icellsize;
+
+						/*
+						 * this is velocity at beginning of step. Note that the gradient is not required
+						 */
 						gridnodes[ix][iy][iz].l_vx = Minv * gridnodes[ix][iy][iz].l_vx;
-						gridnodes[ix][iy][iz].l_vx(1) *= icellsize; // divide by h here to account for use of scaled distances above
-						gridnodes[ix][iy][iz].l_vx(2) *= icellsize;
-						gridnodes[ix][iy][iz].l_vx(3) *= icellsize;
 						gridnodes[ix][iy][iz].vx = gridnodes[ix][iy][iz].l_vx(0);
 						gridnodes[ix][iy][iz].l_vy = Minv * gridnodes[ix][iy][iz].l_vy;
-						gridnodes[ix][iy][iz].l_vy(1) *= icellsize; // divide by h here to account for use of scaled distances above
-						gridnodes[ix][iy][iz].l_vy(2) *= icellsize;
-						gridnodes[ix][iy][iz].l_vy(3) *= icellsize;
 						gridnodes[ix][iy][iz].vy = gridnodes[ix][iy][iz].l_vy(0);
 						gridnodes[ix][iy][iz].l_vz = Minv * gridnodes[ix][iy][iz].l_vz;
-						gridnodes[ix][iy][iz].l_vz(1) *= icellsize; // divide by h here to account for use of scaled distances above
-						gridnodes[ix][iy][iz].l_vz(2) *= icellsize;
-						gridnodes[ix][iy][iz].l_vz(3) *= icellsize;
 						gridnodes[ix][iy][iz].vz = gridnodes[ix][iy][iz].l_vz(0);
 
+						/*
+						 * interpolated stress
+						 */
+//						gridnodes[ix][iy][iz].sxx = Minv * gridnodes[ix][iy][iz].sxx;
+//						gridnodes[ix][iy][iz].syy = Minv * gridnodes[ix][iy][iz].syy;
+//						gridnodes[ix][iy][iz].szz = Minv * gridnodes[ix][iy][iz].szz;
+//						gridnodes[ix][iy][iz].sxy = Minv * gridnodes[ix][iy][iz].sxy;
+//						gridnodes[ix][iy][iz].sxz = Minv * gridnodes[ix][iy][iz].sxz;
+//						gridnodes[ix][iy][iz].syz = Minv * gridnodes[ix][iy][iz].syz;
 						/*
 						 * mark this grid node as having accurate, i.e., WLS interpolated data on it.
 						 */
@@ -430,9 +463,6 @@ void PairSmdWlsMpm::ApplyVelocityBC() {
 								gridnodes[jx][jy][jz].vx = vel_particle(0);
 								gridnodes[jx][jy][jz].vy = vel_particle(1);
 								gridnodes[jx][jy][jz].vz = vel_particle(2);
-								gridnodes[jx][jy][jz].vestx = vel_particle(0);
-								gridnodes[jx][jy][jz].vesty = vel_particle(1);
-								gridnodes[jx][jy][jz].vestz = vel_particle(2);
 								gridnodes[jx][jy][jz].isVelocityBC = true;
 							}
 
@@ -464,8 +494,8 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	Vector3d g, vel_grid, dx, vel_particle;
 	Matrix3d velocity_gradient, D, displacement_gradient, Finv, eye;
-	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf, wfdx, wfdy;
-	double delz_scaled, delz_scaled_abs, wfz, wfdz;
+	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf;
+	double delz_scaled, delz_scaled_abs, wfz;
 	Vector4d l, l_vx, l_vy, l_vz;
 
 	eye.setIdentity();
@@ -519,17 +549,17 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 
 							wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
-							velocity_gradient(0, 0) += wf * gridnodes[jx][jy][jz].l_vx(1);
-							velocity_gradient(0, 1) += wf * gridnodes[jx][jy][jz].l_vx(2);
-							velocity_gradient(0, 2) += wf * gridnodes[jx][jy][jz].l_vx(3);
+							velocity_gradient(0, 0) += wf * gridnodes[jx][jy][jz].l_vestx(1);
+							velocity_gradient(0, 1) += wf * gridnodes[jx][jy][jz].l_vestx(2);
+							velocity_gradient(0, 2) += wf * gridnodes[jx][jy][jz].l_vestx(3);
 
-							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vy(1);
-							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vy(2);
-							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vy(3);
+							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vesty(1);
+							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vesty(2);
+							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vesty(3);
 
-							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vz(1);
-							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vz(2);
-							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vz(3);
+							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vestz(1);
+							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vestz(2);
+							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vestz(3);
 							norm += wf;
 						}
 					}
@@ -537,6 +567,7 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 			}
 
 			L[i] = velocity_gradient / norm;
+			//printf("this is Lxx %f\n", L[i](0,0));
 			Finv = eye - displacement_gradient; // this is the incremental deformation gradient
 			if (domain->dimension == 2) {
 				Finv(2, 2) = 1.0;
@@ -554,7 +585,7 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 
 void PairSmdWlsMpm::ComputeGridForces() {
 	double **x = atom->x;
-	double **f = atom->f;
+	//double **f = atom->f;
 	double *vfrac = atom->vfrac;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
@@ -620,19 +651,6 @@ void PairSmdWlsMpm::ComputeGridForces() {
 						g(1) = wfdy * wfx * wfz;
 						g(2) = wfdz * wfx * wfy;
 
-						l(0) = 1.0;
-						l(1) = delx_scaled;
-						l(2) = dely_scaled;
-						l(3) = delz_scaled;
-						g4 = gridnodes[jx][jy][jz].M * l;
-						g << g4(1), g4(2), g4(3);
-						g *= -wf * icellsize;
-
-						force = scaledStress * g; // this is the force from the divergence of the stress field
-
-						//g = -wf * dx;
-						//force = scaledStress * gridnodes[jx][jy][jz].M * g;
-
 						//force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
 						//force(1) += wf * f[i][1];
 						//force(2) += wf * f[i][2];
@@ -645,26 +663,6 @@ void PairSmdWlsMpm::ComputeGridForces() {
 			}
 		} // end if (setflag[itype][itype])
 	}
-
-//	// finalize cgrid forces with WLS moment matrix
-//	for (ix = 0; ix < grid_nx; ix++) {
-//		for (iy = 0; iy < grid_ny; iy++) {
-//			for (iz = 0; iz < grid_nz; iz++) {
-//				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
-//
-//					force(0) = gridnodes[ix][iy][iz].fx;
-//					force(1) = gridnodes[ix][iy][iz].fy;
-//					force(2) = gridnodes[ix][iy][iz].fz;
-//
-//					force = (gridnodes[ix][iy][iz].M * force).eval();
-//
-//					gridnodes[ix][iy][iz].fx = force(0);
-//					gridnodes[ix][iy][iz].fy = force(1);
-//					gridnodes[ix][iy][iz].fz = force(2);
-//				}
-//			}
-//		}
-//	}
 }
 
 /*
@@ -892,7 +890,7 @@ void PairSmdWlsMpm::compute(int eflag, int vflag) {
 	CreateGrid();
 	PointsToGrid();
 
-	ComputeVelocityGradient(); // using current velocities
+	ComputeVelocityGradient(); // this only interpolates the velocity gradient to the particle
 
 	AssembleStressTensor();
 
@@ -1871,7 +1869,7 @@ void PairSmdWlsMpm::DumpGrid() {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
 				if (gridnodes[ix][iy][iz].isAccurate) {
-					fprintf(f, "X %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].l_vx(0));
+					fprintf(f, "X %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].l_vestx(0));
 				} else {
 					fprintf(f, "Y %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, -999.0);
 				}

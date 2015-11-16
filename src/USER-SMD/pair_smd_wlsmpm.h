@@ -135,16 +135,23 @@ private:
 	struct Gridnode {
 		double mass;
 		double vx, vy, vz;
-		double vestx, vesty, vestz;
 		double fx, fy, fz;
 		bool isVelocityBC;
 		Vector3d u;
 
 		double dvxdx;
 		Matrix4d M;
-		Vector4d l_vx;
-		Vector4d l_vy;
-		Vector4d l_vz;
+		Vector4d l_vx, l_vestx;
+		Vector4d l_vy, l_vesty;
+		Vector4d l_vz, l_vestz;
+		Vector4d l_mass;
+
+//		Vector4d sxx;
+//		Vector4d syy;
+//		Vector4d szz;
+//		Vector4d sxy;
+//		Vector4d sxz;
+//		Vector4d syz;
 
 		bool isAccurate;
 	};

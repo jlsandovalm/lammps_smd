@@ -139,7 +139,6 @@ void FixSMDIntegrateMpm::init() {
 void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 
 	double **x = atom->x;
-	double **x0 = atom->x0;
 	double **v = atom->v;
 	int *mask = atom->mask;
 	int nlocal = atom->nlocal;
@@ -151,10 +150,6 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 
 	for (i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
-
-//			x0[i][0] = x[i][0];
-//			x0[i][1] = x[i][1];
-//			x0[i][2] = x[i][2];
 
 			x[i][0] += dtv * v[i][0];
 			x[i][1] += dtv * v[i][1];
