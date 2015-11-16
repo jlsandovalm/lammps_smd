@@ -61,7 +61,7 @@ variable        amz equal angmom(all,z) # angular momentum
 
 # time integration
 timestep        ${dt} # set an initial estimate for the zero-th timestep
-#fix             dtfix all smd/adjust_dt 0.5
+fix             dtfix all smd/adjust_dt 0.5
 #fix             gfix  all gravity 0.01 vector 0 1 0
 fix             integration_fix all smd/integrate_mpm FLIP 0# actual integration for equations of motion
 

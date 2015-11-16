@@ -326,18 +326,27 @@ void PairSmdWlsMpm::PointsToGrid() {
 						 */
 						gridnodes[ix][iy][iz].M.row(3).setZero();
 						gridnodes[ix][iy][iz].M.col(3).setZero();
-						gridnodes[ix][iy][iz].M(3,3) = 1.0;
+						gridnodes[ix][iy][iz].M(3, 3) = 1.0;
 					}
 
 					// obtain WLS solution for grid node values
 					if (fabs(gridnodes[ix][iy][iz].M.determinant()) > MIN_MATRIX_DETERMINANT) {
 						Minv = gridnodes[ix][iy][iz].M.inverse();
 						gridnodes[ix][iy][iz].M = Minv;
-						gridnodes[ix][iy][iz].l_vx = Minv * gridnodes[ix][iy][iz].l_vx * icellsize; // divide by h here to account for use of scaled distances above
+						gridnodes[ix][iy][iz].l_vx = Minv * gridnodes[ix][iy][iz].l_vx;
+						gridnodes[ix][iy][iz].l_vx(1) *= icellsize; // divide by h here to account for use of scaled distances above
+						gridnodes[ix][iy][iz].l_vx(2) *= icellsize;
+						gridnodes[ix][iy][iz].l_vx(3) *= icellsize;
 						gridnodes[ix][iy][iz].vx = gridnodes[ix][iy][iz].l_vx(0);
-						gridnodes[ix][iy][iz].l_vy = Minv * gridnodes[ix][iy][iz].l_vy * icellsize;
+						gridnodes[ix][iy][iz].l_vy = Minv * gridnodes[ix][iy][iz].l_vy;
+						gridnodes[ix][iy][iz].l_vy(1) *= icellsize; // divide by h here to account for use of scaled distances above
+						gridnodes[ix][iy][iz].l_vy(2) *= icellsize;
+						gridnodes[ix][iy][iz].l_vy(3) *= icellsize;
 						gridnodes[ix][iy][iz].vy = gridnodes[ix][iy][iz].l_vy(0);
-						gridnodes[ix][iy][iz].l_vz = Minv * gridnodes[ix][iy][iz].l_vz * icellsize;
+						gridnodes[ix][iy][iz].l_vz = Minv * gridnodes[ix][iy][iz].l_vz;
+						gridnodes[ix][iy][iz].l_vz(1) *= icellsize; // divide by h here to account for use of scaled distances above
+						gridnodes[ix][iy][iz].l_vz(2) *= icellsize;
+						gridnodes[ix][iy][iz].l_vz(3) *= icellsize;
 						gridnodes[ix][iy][iz].vz = gridnodes[ix][iy][iz].l_vz(0);
 
 						/*
@@ -556,7 +565,7 @@ void PairSmdWlsMpm::ComputeGridForces() {
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf, wfdx, wfdy;
 	double delz_scaled, delz_scaled_abs, wfz, wfdz, vol;
 	Matrix3d scaledStress;
-	Vector4d l, g4;
+	Matrix4d g4, l;
 
 // ---- compute internal forces ---
 	for (i = 0; i < nall; i++) {
@@ -579,32 +588,54 @@ void PairSmdWlsMpm::ComputeGridForces() {
 
 				delx_scaled = px_shifted * icellsize - 1.0 * jx;
 				delx_scaled_abs = fabs(delx_scaled);
+				dx(0) = delx_scaled * cellsize;
 				wfx = DisneyKernel(delx_scaled_abs);
+				wfdx = DisneyKernelDerivative(delx_scaled_abs) * icellsize;
+				if (delx_scaled < 0.0)
+					wfdx = -wfdx;
 
 				for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
 					dely_scaled = py_shifted * icellsize - 1.0 * jy;
 					dely_scaled_abs = fabs(dely_scaled);
+					dx(1) = dely_scaled * cellsize;
 					wfy = DisneyKernel(dely_scaled_abs);
+					wfdy = DisneyKernelDerivative(dely_scaled_abs) * icellsize;
+					if (dely_scaled < 0.0)
+						wfdy = -wfdy;
 
 					for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
 						delz_scaled = pz_shifted * icellsize - 1.0 * jz;
 						delz_scaled_abs = fabs(delz_scaled);
+						dx(2) = delz_scaled * cellsize;
 						wfz = DisneyKernel(delz_scaled_abs);
+						wfdz = DisneyKernelDerivative(delz_scaled_abs) * icellsize;
+						if (delz_scaled < 0.0)
+							wfdz = -wfdz;
 
 						wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
+						g(0) = wfdx * wfy * wfz; // this is the kernel gradient
+						g(1) = wfdy * wfx * wfz;
+						g(2) = wfdz * wfx * wfy;
 
-						l << 1.0, delx_scaled, dely_scaled, delz_scaled;
-						g4 = gridnodes[jx][jy][jz].M * l * icellsize;
-
+						l(0) = 1.0;
+						l(1) = delx_scaled;
+						l(2) = dely_scaled;
+						l(3) = delz_scaled;
+						g4 = gridnodes[jx][jy][jz].M * l;
 						g << g4(1), g4(2), g4(3);
+						g *= -wf * icellsize;
+
 						force = scaledStress * g; // this is the force from the divergence of the stress field
 
-						force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
-						force(1) += wf * f[i][1];
-						force(2) += wf * f[i][2];
+						//g = -wf * dx;
+						//force = scaledStress * gridnodes[jx][jy][jz].M * g;
+
+						//force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
+						//force(1) += wf * f[i][1];
+						//force(2) += wf * f[i][2];
 
 						gridnodes[jx][jy][jz].fx += force(0);
 						gridnodes[jx][jy][jz].fy += force(1);
@@ -1840,7 +1871,7 @@ void PairSmdWlsMpm::DumpGrid() {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
 				if (gridnodes[ix][iy][iz].isAccurate) {
-					fprintf(f, "X %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].l_vx(1));
+					fprintf(f, "X %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].l_vx(0));
 				} else {
 					fprintf(f, "Y %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, -999.0);
 				}
