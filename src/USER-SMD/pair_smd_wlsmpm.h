@@ -70,7 +70,6 @@ public:
 	void GridToPoints();
 	void UpdateStress();
 	void GetStress();
-	void ApplyVelocityBC();
 	void AccumulateMomentMatrix(double x, double y, double z, double W, Matrix4d &M);
 	void DumpGrid();
 
@@ -134,25 +133,12 @@ private:
 
 	struct Gridnode {
 		double mass;
-		double vx, vy, vz;
 		double fx, fy, fz;
 		bool isVelocityBC;
-		Vector3d u;
-
-		double dvxdx;
 		Matrix4d M;
 		Vector4d l_vx, l_vestx;
 		Vector4d l_vy, l_vesty;
 		Vector4d l_vz, l_vestz;
-		Vector4d l_mass;
-
-//		Vector4d sxx;
-//		Vector4d syy;
-//		Vector4d szz;
-//		Vector4d sxy;
-//		Vector4d sxz;
-//		Vector4d syz;
-
 		bool isAccurate;
 	};
 

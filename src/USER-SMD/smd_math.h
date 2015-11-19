@@ -149,9 +149,7 @@ static inline void pseudo_inverse_SVD(Matrix3d &M) {
 //	}
 //
 //	M = svd.matrixU() * singularValuesInv.asDiagonal() * svd.matrixV().transpose();
-
 }
-
 
 /*
  * specialized SVD for symmetric input matrices.
@@ -169,7 +167,7 @@ static inline void pseudo_inverse_SVD_limit_eigenvalue(Matrix3d &M, const double
 	for (int row = 0; row < 3; row++) {
 		if (singularValues(row) > pinvtoler) {
 			singularValuesInv(row) = 1.0 / singularValues(row);
-			if (singularValuesInv(row) > limit)  {
+			if (singularValuesInv(row) > limit) {
 				printf("eigenvalue is %f\n", singularValuesInv(row));
 				singularValuesInv(row) = limit;
 			}
@@ -205,7 +203,7 @@ static inline Matrix3d LimitEigenvalues(Matrix3d S, double limitEigenvalue) {
 	/*
 	 * compute Eigenvalues of matrix S
 	 */
-	SelfAdjointEigenSolver < Matrix3d > es;
+	SelfAdjointEigenSolver<Matrix3d> es;
 	es.compute(S);
 
 	double max_eigenvalue = es.eigenvalues().maxCoeff();
@@ -239,7 +237,7 @@ static inline bool LimitMinMaxEigenvalues(Matrix3d &S, double min, double max) {
 	/*
 	 * compute Eigenvalues of matrix S
 	 */
-	SelfAdjointEigenSolver < Matrix3d > es;
+	SelfAdjointEigenSolver<Matrix3d> es;
 	es.compute(S);
 
 	if ((es.eigenvalues().maxCoeff() > max) || (es.eigenvalues().minCoeff() < min)) {
@@ -314,7 +312,33 @@ static inline bool DoLineSegmentsIntersect(double x1, double y1, double x2, doub
 			|| (d3 == 0 && IsOnSegment(x1, y1, x2, y2, x3, y3)) || (d4 == 0 && IsOnSegment(x1, y1, x2, y2, x4, y4));
 }
 
+/*
+ * Pseudo-inverse via SVD for a 4d matrix
+ */
+
+static inline void pinv4(Matrix4d &M) {
+
+	//JacobiSVD < Matrix3d > svd(M, ComputeFullU | ComputeFullV);
+	JacobiSVD<Matrix4d> svd(M, ComputeFullU); // one Eigevector base is sufficient because matrix is square and symmetric
+
+	Vector4d singularValuesInv;
+	Vector4d singularValues = svd.singularValues();
+
+//cout << "Here is the matrix V:" << endl << V * singularValues.asDiagonal() * U << endl;
+//cout << "Its singular values are:" << endl << singularValues << endl;
+
+	double pinvtoler = 1.0e-16; // 2d machining example goes unstable if this value is increased (1.0e-16).
+	for (int row = 0; row < 4; row++) {
+		if (singularValues(row) > pinvtoler) {
+			singularValuesInv(row) = 1.0 / singularValues(row);
+		} else {
+			singularValuesInv(row) = 0.0;
+		}
+	}
+
+	M = svd.matrixU() * singularValuesInv.asDiagonal() * svd.matrixU().transpose();
+}
+
 }
 
 #endif /* SMD_MATH_H_ */
-

@@ -24,7 +24,7 @@ variable        skin equal ${l0} # Verlet list range
 
 units		si
 dimension       3
-boundary        s s p
+boundary        s s s
 atom_style      smd
 comm_style      brick
 neighbor        ${skin} bin
@@ -32,7 +32,7 @@ neigh_modify    every 10 delay 0 check yes
 
 newton          off
 
-region          box block 0 10 0 10 0 0.1 units box
+region          box block 0 10 0 10 0 4.0 units box
 create_box      1 box
 
 lattice         sc ${l0}
@@ -72,10 +72,11 @@ variable        amz equal angmom(all,z) # angular momentum
 
 
 # time integration
-timestep        ${dt} # set an initial estimate for the zero-th timestep
-fix             dtfix all smd/adjust_dt 0.5
+#timestep        ${dt} # set an initial estimate for the zero-th timestep
+timestep        0
+#fix             dtfix all smd/adjust_dt 0.5
 #fix             gfix  all gravity 0.01 vector 0 1 0
-#fix             integration_fix all smd/integrate_mpm # actual integration for equations of motion
+fix             integration_fix all smd/integrate_mpm FLIP 0.0# actual integration for equations of motion
 
 variable        dumpFreq equal 1
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
@@ -91,5 +92,5 @@ thermo_style    custom step ke pe v_etot c_alleint dt v_amz
 # Apply initial velocity conditions.
 #
 velocity        all ramp vx    -1 11 x -1 11 units box
-velocity        all ramp vy    -1 11 y -1 11 units box
-run  0
+#velocity        all ramp vy    -1 11 y -1 11 units box
+run  200

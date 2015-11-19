@@ -215,6 +215,10 @@ void FixSMDIntegrateMpm::final_integrate() {
 			v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
 					+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 
+//			v[i][0] = particleVelocities[i](0);
+//			v[i][1] = particleVelocities[i](1);
+//			v[i][2] = particleVelocities[i](2);
+
 			if (flip_contribution > -1.0) {
 				vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
 				vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
