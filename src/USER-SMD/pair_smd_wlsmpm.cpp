@@ -274,9 +274,9 @@ void PairSmdWlsMpm::PointsToGrid() {
 									gridnodes[jx][jy][jz].l_vy += wf * vel_particle(1) * l;
 									gridnodes[jx][jy][jz].l_vz += wf * vel_particle(2) * l;
 
-									gridnodes[jx][jy][jz].l_vestx += wf * vel_particle_est(0) * l;
-									gridnodes[jx][jy][jz].l_vesty += wf * vel_particle_est(1) * l;
-									gridnodes[jx][jy][jz].l_vestz += wf * vel_particle_est(2) * l;
+//									gridnodes[jx][jy][jz].l_vestx += wf * vel_particle_est(0) * l;
+//									gridnodes[jx][jy][jz].l_vesty += wf * vel_particle_est(1) * l;
+//									gridnodes[jx][jy][jz].l_vestz += wf * vel_particle_est(2) * l;
 
 									gridnodes[jx][jy][jz].mass += wf * rmass[i];
 									gridnodes[jx][jy][jz].M += wf * l * l.transpose();
@@ -305,6 +305,16 @@ void PairSmdWlsMpm::PointsToGrid() {
 						gridnodes[ix][iy][iz].M(3, 3) = 1.0;
 					}
 
+
+//					if (fabs(gridnodes[ix][iy][iz].M.determinant()) < MIN_MATRIX_DETERMINANT) {
+//
+//						cout << "==================================================" << endl;
+//						cout << "this is det M " << gridnodes[ix][iy][iz].M.determinant() << endl;
+//						cout << "this is nodal M" << endl << gridnodes[ix][iy][iz].M << endl << endl;
+//						Minv = gridnodes[ix][iy][iz].M;
+//						pinv4(Minv);
+//						cout << "this is nodal M inverted" << endl << Minv << endl << endl;
+//					}
 					//pinv4(gridnodes[ix][iy][iz].M);
 
 					if (fabs(gridnodes[ix][iy][iz].M.determinant()) > MIN_MATRIX_DETERMINANT) {
@@ -320,9 +330,9 @@ void PairSmdWlsMpm::PointsToGrid() {
 						 * this is the intermediate velocity at t + 0.5*deltat
 						 * it is used to compute the velocity gradient
 						 */
-						gridnodes[ix][iy][iz].l_vestx = (Minv * gridnodes[ix][iy][iz].l_vestx).eval();
-						gridnodes[ix][iy][iz].l_vesty = (Minv * gridnodes[ix][iy][iz].l_vesty).eval();
-						gridnodes[ix][iy][iz].l_vestz = (Minv * gridnodes[ix][iy][iz].l_vestz).eval();
+//						gridnodes[ix][iy][iz].l_vestx = (Minv * gridnodes[ix][iy][iz].l_vestx).eval();
+//						gridnodes[ix][iy][iz].l_vesty = (Minv * gridnodes[ix][iy][iz].l_vesty).eval();
+//						gridnodes[ix][iy][iz].l_vestz = (Minv * gridnodes[ix][iy][iz].l_vestz).eval();
 
 						/*
 						 * this is velocity at beginning of step.
@@ -422,29 +432,29 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 
 							wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
-							velocity_gradient(0, 0) += wf * gridnodes[jx][jy][jz].l_vestx(1);
-							velocity_gradient(0, 1) += wf * gridnodes[jx][jy][jz].l_vestx(2);
-							velocity_gradient(0, 2) += wf * gridnodes[jx][jy][jz].l_vestx(3);
-
-							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vesty(1);
-							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vesty(2);
-							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vesty(3);
-
-							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vestz(1);
-							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vestz(2);
-							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vestz(3);
-
-//							velocity_gradient(0, 0) += wf * gridnodes[jx][jy][jz].l_vx(1);
-//							velocity_gradient(0, 1) += wf * gridnodes[jx][jy][jz].l_vx(2);
-//							velocity_gradient(0, 2) += wf * gridnodes[jx][jy][jz].l_vx(3);
+//							velocity_gradient(0, 0) += wf * gridnodes[jx][jy][jz].l_vestx(1);
+//							velocity_gradient(0, 1) += wf * gridnodes[jx][jy][jz].l_vestx(2);
+//							velocity_gradient(0, 2) += wf * gridnodes[jx][jy][jz].l_vestx(3);
 //
-//							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vy(1);
-//							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vy(2);
-//							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vy(3);
+//							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vesty(1);
+//							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vesty(2);
+//							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vesty(3);
 //
-//							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vz(1);
-//							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vz(2);
-//							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vz(3);
+//							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vestz(1);
+//							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vestz(2);
+//							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vestz(3);
+
+							velocity_gradient(0, 0) += wf * gridnodes[jx][jy][jz].l_vx(1);
+							velocity_gradient(0, 1) += wf * gridnodes[jx][jy][jz].l_vx(2);
+							velocity_gradient(0, 2) += wf * gridnodes[jx][jy][jz].l_vx(3);
+
+							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vy(1);
+							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vy(2);
+							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vy(3);
+
+							velocity_gradient(1, 0) += wf * gridnodes[jx][jy][jz].l_vz(1);
+							velocity_gradient(1, 1) += wf * gridnodes[jx][jy][jz].l_vz(2);
+							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vz(3);
 
 							norm += wf;
 						}
@@ -788,7 +798,7 @@ void PairSmdWlsMpm::compute(int eflag, int vflag) {
 
 	GridToPoints();
 
-	DumpGrid();
+	//DumpGrid();
 
 	DestroyGrid();
 

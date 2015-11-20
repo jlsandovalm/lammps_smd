@@ -318,16 +318,16 @@ static inline bool DoLineSegmentsIntersect(double x1, double y1, double x2, doub
 
 static inline void pinv4(Matrix4d &M) {
 
-	//JacobiSVD < Matrix3d > svd(M, ComputeFullU | ComputeFullV);
-	JacobiSVD<Matrix4d> svd(M, ComputeFullU); // one Eigevector base is sufficient because matrix is square and symmetric
+	JacobiSVD < Matrix4d > svd(M, ComputeFullU | ComputeFullV);
+	//JacobiSVD<Matrix4d> svd(M, ComputeFullU); // one Eigevector base is sufficient because matrix is square and symmetric
 
 	Vector4d singularValuesInv;
 	Vector4d singularValues = svd.singularValues();
 
-//cout << "Here is the matrix V:" << endl << V * singularValues.asDiagonal() * U << endl;
-//cout << "Its singular values are:" << endl << singularValues << endl;
+//cout << "Here is the matrix V:" << endl << svd.MatrixV * singularValues.asDiagonal() * U << endl;
+cout << "Its singular values are:" << endl << singularValues << endl;
 
-	double pinvtoler = 1.0e-16; // 2d machining example goes unstable if this value is increased (1.0e-16).
+	double pinvtoler = 1.0e-3; // 2d machining example goes unstable if this value is increased (1.0e-16).
 	for (int row = 0; row < 4; row++) {
 		if (singularValues(row) > pinvtoler) {
 			singularValuesInv(row) = 1.0 / singularValues(row);
@@ -336,7 +336,7 @@ static inline void pinv4(Matrix4d &M) {
 		}
 	}
 
-	M = svd.matrixU() * singularValuesInv.asDiagonal() * svd.matrixU().transpose();
+	M = svd.matrixV() * singularValuesInv.asDiagonal() * svd.matrixU().transpose();
 }
 
 }

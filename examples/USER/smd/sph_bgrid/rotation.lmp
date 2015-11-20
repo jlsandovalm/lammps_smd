@@ -36,12 +36,13 @@ set             group all smd_mass_density ${rho}
 
 set             group all diameter ${l0}
 
+variable       mpm_cellsize equal 2*${l0}
 #variable        comm_cutoff equal 8.0*${h}
 comm_modify     vel yes #cutoff ${comm_cutoff}
 
 
 # this is an updated-Lagrangian pair style with Tait EOS and physical viscosity.
-pair_style      smd/wlsmpm ${l0}
+pair_style      smd/wlsmpm    ${mpm_cellsize}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
@@ -65,7 +66,7 @@ fix             dtfix all smd/adjust_dt 0.5
 #fix             gfix  all gravity 0.01 vector 0 1 0
 fix             integration_fix all smd/integrate_mpm FLIP 0# actual integration for equations of motion
 
-variable        dumpFreq equal 1
+variable        dumpFreq equal 10
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
                 fx fy fz vx vy vz c_eint &
                 c_contact_radius c_nn mol c_rho c_S[1] c_S[2] c_S[4] radius &
@@ -73,11 +74,11 @@ dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
 
 dump_modify     dump_id first yes
 
-thermo          1
+thermo          10
 thermo_style    custom step ke pe v_etot c_alleint dt v_amz
 
-velocity        all ramp vx    -0.1 0.1 y 0 100 units lattice
-velocity        all ramp vy    0.1 -0.1 x 0 100 units lattice
+velocity        all ramp vx    -1.1 1.1 y 0 100 units lattice
+velocity        all ramp vy    1.1 -1.1 x 0 100 units lattice
 
 #
 # Case 3: make the drop of water hit a rigid wall. Angular momentum is never conserved.
@@ -87,4 +88,4 @@ velocity        all ramp vy    0.1 -0.1 x 0 100 units lattice
 #velocity        all ramp vx -0.1 0.1 x 0 10 units box
 #fix             ywall all wall/reflect ylo 1.0
 
-run  100
+run  1000
