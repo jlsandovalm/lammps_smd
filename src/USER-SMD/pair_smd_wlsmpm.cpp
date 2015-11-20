@@ -58,7 +58,7 @@ using namespace Eigen;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
-#define MIN_MATRIX_DETERMINANT 1.0e-8
+#define MIN_MATRIX_DETERMINANT 1.0e-2
 #define MASS_CUTOFF 1.0e-8
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
@@ -457,7 +457,10 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 							velocity_gradient(1, 2) += wf * gridnodes[jx][jy][jz].l_vz(3);
 
 							norm += wf;
+						} else {
+							// conventional computation of the velocity gradient
 						}
+
 					}
 				}
 			}
@@ -471,7 +474,7 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 
 void PairSmdWlsMpm::ComputeGridForces() {
 	double **x = atom->x;
-	//double **f = atom->f;
+	double **f = atom->f;
 	double *vfrac = atom->vfrac;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
@@ -539,9 +542,9 @@ void PairSmdWlsMpm::ComputeGridForces() {
 
 						force = scaledStress * g;
 
-						//force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
-						//force(1) += wf * f[i][1];
-						//force(2) += wf * f[i][2];
+						force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
+						force(1) += wf * f[i][1];
+						force(2) += wf * f[i][2];
 
 						gridnodes[jx][jy][jz].fx += force(0);
 						gridnodes[jx][jy][jz].fy += force(1);
