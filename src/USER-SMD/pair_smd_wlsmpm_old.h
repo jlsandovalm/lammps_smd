@@ -24,12 +24,12 @@
 
 #ifdef PAIR_CLASS
 
-PairStyle(smd/wlsmpm,PairSmdWlsMpm)
+PairStyle(smd/wlsmpmold,PairSmdWlsMpmOld)
 
 #else
 
-#ifndef LMP_SMD_WLSMPM_H
-#define LMP_SMD_WLSMPM_H
+#ifndef LMP_WLSMPM_OLD_H
+#define LMP_WLSMPM_OLD_H
 
 #include "pair.h"
 #include <Eigen/Eigen>
@@ -40,10 +40,10 @@ using namespace Eigen;
 using namespace std;
 namespace LAMMPS_NS {
 
-class PairSmdWlsMpm: public Pair {
+class PairSmdWlsMpmOld: public Pair {
 public:
-	PairSmdWlsMpm(class LAMMPS *);
-	virtual ~PairSmdWlsMpm();
+	PairSmdWlsMpmOld(class LAMMPS *);
+	virtual ~PairSmdWlsMpmOld();
 	virtual void compute(int, int);
 	void settings(int, char **);
 	void coeff(int, char **);
@@ -70,7 +70,8 @@ public:
 	void GridToPoints();
 	void UpdateStress();
 	void GetStress();
-	void ApplyVelocityBC();
+	void AccumulateMomentMatrix(double x, double y, double z, double W, Matrix4d &M);
+	void DumpGrid();
 
 protected:
 
@@ -85,6 +86,7 @@ protected:
 	int *numNeighs;
 	double *c0;
 	Matrix3d *stressTensor, *L, *F;
+	Matrix4d *M; // WLS moment matrix on particles
 
 	double dtCFL;
 
@@ -131,10 +133,14 @@ private:
 
 	struct Gridnode {
 		double mass;
-		Vector3d v, vest, f;
-		bool isVelocityBC, isAccurate;
-		Vector4d vest_lx, vest_ly, vest_lz;
+		double fx, fy, fz;
+		bool isVelocityBC;
 		Matrix4d M;
+		Vector3d v;
+		Vector4d l_vx;
+		Vector4d l_vy;
+		Vector4d l_vz;
+		bool isAccurate;
 	};
 
 	Gridnode ***gridnodes;

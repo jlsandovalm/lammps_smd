@@ -70,7 +70,7 @@ set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho_water}
 variable        skin equal ${h} # Verlet list range
 neighbor        ${skin} bin
-variable        mpm_cellsize equal 2*${l0}
+variable        mpm_cellsize equal 1*${l0}
 
 
 
@@ -114,7 +114,7 @@ compute         peatom all pe/atom
 compute         S water smd/ulsph_stress
 compute         D water smd/ulsph_strain_rate
 
-dump            dump_id all custom 10 dump.LAMMPS id type x y &
+dump            dump_id all custom 100 dump.LAMMPS id type x y &
                 fx fy vx vy c_eint c_contact_radius mol &
                 radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4]
 dump_modify     dump_id first yes
@@ -136,10 +136,10 @@ thermo_modify   lost ignore
 run             1
 fix             balance_fix all balance 1000 0.9 rcb # load balancing for MPI
 fix             2 all enforce2d
-run             40000
 
-dump_modify     dump_id every 1
+#run 400
+#dump_modify     dump_id every 1
 
-run 1000
+run 5000
 #
 #
