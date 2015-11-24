@@ -101,6 +101,7 @@ Atom::Atom(LAMMPS *lmp) : Pointers(lmp)
   eff_plastic_strain = NULL;
   eff_plastic_strain_rate = NULL;
   damage = NULL;
+  heat = NULL;
 
   bond_per_atom =  extra_bond_per_atom = 0;
   num_bond = NULL;
@@ -165,6 +166,7 @@ Atom::Atom(LAMMPS *lmp) : Pointers(lmp)
   eff_plastic_strain_flag = 0;
   eff_plastic_strain_rate_flag = 0;
   damage_flag = 0;
+  heat_flag = 0;
 
   // Peridynamic scale factor
 
@@ -269,6 +271,7 @@ Atom::~Atom()
   memory->destroy(eff_plastic_strain);
   memory->destroy(eff_plastic_strain_rate);
   memory->destroy(damage);
+  memory->destroy(heat);
 
   memory->destroy(nspecial);
   memory->destroy(special);
@@ -1988,6 +1991,7 @@ void *Atom::extract(char *name)
   if (strcmp(name, "eff_plastic_strain") == 0) return (void *) eff_plastic_strain;
   if (strcmp(name, "eff_plastic_strain_rate") == 0) return (void *) eff_plastic_strain_rate;
   if (strcmp(name, "damage") == 0) return (void *) damage;
+  if (strcmp(name, "heat") == 0) return (void *) heat;
 
   return NULL;
 }

@@ -71,6 +71,7 @@ public:
 	void UpdateStress();
 	void GetStress();
 	void ApplyVelocityBC();
+	void SolveHeatEquation();
 
 protected:
 
@@ -86,7 +87,10 @@ protected:
 	int nmax; // max number of atoms on this proc
 	int *numNeighs;
 	double *c0;
+	double *particleHeatRate;
 	Matrix3d *stressTensor, *L, *F;
+	Vector3d *heat_gradient;
+
 
 	double dtCFL;
 	bool Bp_exists;
@@ -133,12 +137,9 @@ private:
 	double **Lookup; // holds per-type material parameters for the quantities defined in enum statement above.
 
 	struct Gridnode {
-		double mass;
-		double vx, vy, vz;
-		double vestx, vesty, vestz;
-		double fx, fy, fz;
+		double mass, heat, dheat_dt;
+		Vector3d v, vest, f;
 		bool isVelocityBC;
-		Vector3d u;
 	};
 
 	Gridnode ***gridnodes;

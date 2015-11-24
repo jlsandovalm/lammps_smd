@@ -43,7 +43,7 @@ enum{ATOM_SELECT,MOL_SELECT,TYPE_SELECT,GROUP_SELECT,REGION_SELECT};
 enum{TYPE,TYPE_FRACTION,MOLECULE,X,Y,Z,CHARGE,MASS,SHAPE,LENGTH,TRI,
      DIPOLE,DIPOLE_RANDOM,QUAT,QUAT_RANDOM,THETA,ANGMOM,
      DIAMETER,DENSITY,VOLUME,IMAGE,BOND,ANGLE,DIHEDRAL,IMPROPER,
-     MESO_E,MESO_CV,MESO_RHO,SMD_MASS_DENSITY,SMD_CONTACT_RADIUS,INAME,DNAME};
+     MESO_E,MESO_CV,MESO_RHO,SMD_MASS_DENSITY,SMD_CONTACT_RADIUS,SMD_HEAT,INAME,DNAME};
 
 #define BIG INT_MAX
 
@@ -401,6 +401,14 @@ void Set::command(int narg, char **arg)
         	  error->all(FLERR,"Cannot set smd_contact_radius for this atom style");
           set(SMD_CONTACT_RADIUS);
           iarg += 2;
+    } else if (strcmp(arg[iarg],"smd_heat") == 0) {
+              if (iarg+2 > narg) error->all(FLERR,"Illegal set command");
+              if (strstr(arg[iarg+1],"v_") == arg[iarg+1]) varparse(arg[iarg+1],1);
+              else dvalue = force->numeric(FLERR,arg[iarg+1]);
+              if (!atom->heat_flag)
+            	  error->all(FLERR,"Cannot set smd_heat for this atom style");
+              set(SMD_HEAT);
+              iarg += 2;
 
     } else if (strstr(arg[iarg],"i_") == arg[iarg]) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal set command");
@@ -592,7 +600,12 @@ void Set::set(int keyword)
     else if (keyword == SMD_MASS_DENSITY) { // set mass from volume and supplied mass density
     	atom->rmass[i] = atom->vfrac[i] * dvalue;
     }
-    else if (keyword == SMD_CONTACT_RADIUS) atom->contact_radius[i] = dvalue;
+    else if (keyword == SMD_CONTACT_RADIUS){
+    	atom->contact_radius[i] = dvalue;
+    }
+    else if (keyword == SMD_HEAT){
+    	atom->heat[i] = dvalue;
+    }
 
     // set shape of ellipsoidal particle
 

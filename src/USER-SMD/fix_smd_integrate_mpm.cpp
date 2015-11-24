@@ -165,10 +165,9 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 void FixSMDIntegrateMpm::final_integrate() {
 
 	double **v = atom->v;
-	double **f = atom->f;
 	double **vest = atom->vest;
-	double *rmass = atom->rmass;
 	double *e = atom->e;
+	double *heat = atom->heat;
 	double *de = atom->de;
 	double ovx, ovy, ovz;
 
@@ -185,6 +184,11 @@ void FixSMDIntegrateMpm::final_integrate() {
 	Vector3d *particleAccelerations = (Vector3d *) force->pair->extract("smd/mpm/particleAccelerations_ptr", itmp);
 	if (particleAccelerations == NULL) {
 		error->one(FLERR, "fix smd/integrate_mpm failed to accesss particleAccelerations array");
+	}
+
+	double *particleHeatRate = (double *) force->pair->extract("smd/mpm/particleHeatRate_ptr", itmp);
+	if (particleHeatRate == NULL) {
+		error->one(FLERR, "fix smd/integrate_mpm failed to accesss particleHeatRate array");
 	}
 
 	if (igroup == atom->firstgroup)
@@ -215,10 +219,6 @@ void FixSMDIntegrateMpm::final_integrate() {
 			v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
 					+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 
-//			v[i][0] = particleVelocities[i](0);
-//			v[i][1] = particleVelocities[i](1);
-//			v[i][2] = particleVelocities[i](2);
-
 			if (flip_contribution > -1.0) {
 				vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
 				vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
@@ -229,15 +229,10 @@ void FixSMDIntegrateMpm::final_integrate() {
 				vest[i][2] = v[i][2];
 			}
 
-//			f[i][0] = rmass[i] * (v[i][0] - ovx);
-//			f[i][1] = rmass[i] * (v[i][1] - ovy);
-//			f[i][2] = rmass[i] * (v[i][2] - ovz);
-
-//			f[i][0] = rmass[i] * particleAccelerations[i](0);
-//			f[i][1] = rmass[i] * particleAccelerations[i](1);
-//			f[i][2] = rmass[i] * particleAccelerations[i](2);
-
 			e[i] += dtv * de[i];
+
+			heat[i] += dtv * particleHeatRate[i];
+			//heat[i] = particleHeatRate[i];
 
 		}
 	}

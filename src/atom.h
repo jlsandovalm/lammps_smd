@@ -84,6 +84,7 @@ class Atom : protected Pointers {
   double *eff_plastic_strain;
   double *eff_plastic_strain_rate;
   double *damage;
+  double *heat;
 
   int **nspecial;               // 0,1,2 = cummulative # of 1-2,1-3,1-4 neighs
   tagint **special;             // IDs of 1-2,1-3,1-4 neighs of each atom
@@ -141,6 +142,7 @@ class Atom : protected Pointers {
   int eff_plastic_strain_flag;
   int eff_plastic_strain_rate_flag;
   int damage_flag;
+  int heat_flag;
 
   // Peridynamics scale factor, used by dump cfg
 
