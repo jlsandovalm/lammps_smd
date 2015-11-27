@@ -50,9 +50,9 @@ AtomVecSMD::AtomVecSMD(LAMMPS *lmp) :
 
 	comm_x_only = 0;
 	comm_f_only = 0;
-	size_forward = 6; // variables that are changed by time integration
+	size_forward = 7; // variables that are changed by time integration
 	size_reverse = 4; // f[3] + de
-	size_border = 31;
+	size_border = 33;
 	size_velocity = 6; // v + vest
 	size_data_atom = 13; // 7 + 3 x0 + 3 x
 	size_data_vel = 4;

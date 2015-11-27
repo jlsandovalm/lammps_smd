@@ -186,6 +186,11 @@ void FixSMDIntegrateMpm::final_integrate() {
 		error->one(FLERR, "fix smd/integrate_mpm failed to accesss particleAccelerations array");
 	}
 
+	double *particleHeat = (double *) force->pair->extract("smd/mpm/particleHeat_ptr", itmp);
+	if (particleHeat == NULL) {
+		error->one(FLERR, "fix smd/integrate_mpm failed to accesss particleHeat array");
+	}
+
 	double *particleHeatRate = (double *) force->pair->extract("smd/mpm/particleHeatRate_ptr", itmp);
 	if (particleHeatRate == NULL) {
 		error->one(FLERR, "fix smd/integrate_mpm failed to accesss particleHeatRate array");
@@ -219,20 +224,15 @@ void FixSMDIntegrateMpm::final_integrate() {
 			v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
 					+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 
-			if (flip_contribution > -1.0) {
-				vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
-				vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
-				vest[i][2] = v[i][2] + dtf * particleAccelerations[i](2);
-			} else {
-				vest[i][0] = v[i][0];
-				vest[i][1] = v[i][1];
-				vest[i][2] = v[i][2];
-			}
+
+			vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
+			vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
+			vest[i][2] = v[i][2] + dtf * particleAccelerations[i](2);
 
 			e[i] += dtv * de[i];
 
-			heat[i] += dtv * particleHeatRate[i];
-			//heat[i] = particleHeatRate[i];
+			heat[i] = (1. - flip_contribution) * particleHeat[i]
+					+ flip_contribution * (heat[i] + dtv * particleHeatRate[i]);
 
 		}
 	}

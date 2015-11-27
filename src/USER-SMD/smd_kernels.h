@@ -168,6 +168,63 @@ static inline double DisneyKernelDerivative(double r) {
 	}
 }
 
+/*
+ * combined Disney Kernel and derivative used for Material Point Method
+ */
+static void DisneyKernelAndDerivative(const double &icellsize, const double &r_signed, double &wf, double &wfd) {
+
+	if (r_signed >= 0.0) {
+
+		/*
+		 * no need to change the sign of r
+		 */
+
+		if (r_signed < 2.0) {
+			if (r_signed < 1.0) {
+				wf = 0.5 * r_signed * r_signed * r_signed - r_signed * r_signed + 2. / 3.;
+				wfd = icellsize * (1.5 * r_signed * r_signed - 2. * r_signed);
+			} else {
+				wf = -r_signed * r_signed * r_signed / 6. + r_signed * r_signed - 2.0 * r_signed + 4. / 3.;
+				wfd = icellsize * (-0.5 * r_signed * r_signed + 2. * r_signed - 2.);
+			}
+		} else {
+			wf = wfd = 0.0;
+		}
+
+	} else {
+		double r = fabs(r_signed);
+
+		if (r < 2.0) {
+			if (r < 1.0) {
+				wf = 0.5 * r * r * r - r * r + 2. / 3.;
+				wfd = -icellsize * (1.5 * r * r - 2. * r);
+			} else {
+				wf = -r * r * r / 6. + r * r - 2.0 * r + 4. / 3.;
+				wfd = -icellsize * (-0.5 * r * r + 2. * r - 2.);
+			}
+		} else {
+			wf = wfd = 0.0;
+		}
+	}
+
+}
+
+static inline double spikympmKernel(double r) {
+	if (r >= 2.0) {
+		return 0.0;
+	} else {
+		return 0.125 * (2.0 - r) * (2.0 - r) * (2.0 - r);
+	}
+}
+
+static inline double spikympmKernelDerivative(double r) {
+	if (r >= 2.0) {
+		return 0.0;
+	} else {
+		return -0.375 * (2.0 - r) * (2.0 - r);
+	}
+}
+
 }
 
 #endif /* SMD_KERNEL_FUNCTIONS_H_ */

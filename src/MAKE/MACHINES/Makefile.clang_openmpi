@@ -26,6 +26,7 @@ LINK =		mpic++
 #LINKFLAGS = -O2 -g -fsanitize=address -fno-omit-frame-pointer
 LINKFLAGS =	-g -O3 -ffast-math -D__extern_always_inline=inline
 LIB =       -lstdc++
+# -lprofiler
 SIZE =		size
 
 ARCHIVE =	ar

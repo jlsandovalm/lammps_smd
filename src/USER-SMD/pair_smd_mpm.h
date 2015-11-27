@@ -80,6 +80,7 @@ protected:
 	double *c0_type; // reference speed of sound defined per particle type
 	double *rho0; // reference mass density per type
 	double *Q1; // linear artificial viscosity coeff
+	double *heat_conduction_coeff; // heat conduction coefficient [energy / (time * length * Temperature)], W/(m*K) in SI
 	int *eos, *viscosity, *strength; // eos and strength material models
 
 	void allocate();
@@ -87,7 +88,7 @@ protected:
 	int nmax; // max number of atoms on this proc
 	int *numNeighs;
 	double *c0;
-	double *particleHeatRate;
+	double *particleHeat, *particleHeatRate;
 	Matrix3d *stressTensor, *L, *F;
 	Vector3d *heat_gradient;
 

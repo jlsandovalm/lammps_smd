@@ -62,8 +62,8 @@ using namespace Eigen;
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
 #define GRID_OFFSET 2
-#define MIN_MATRIX_DETERMINANT 1.0e-8
-#define MIN_NORM 0.1
+#define MIN_MATRIX_DETERMINANT 1.0e-3
+#define MIN_NORM 0.5
 
 PairSmdWlsMpm::PairSmdWlsMpm(LAMMPS *lmp) :
 		Pair(lmp) {
@@ -400,6 +400,7 @@ void PairSmdWlsMpm::ApplyVelocityBC() {
 void PairSmdWlsMpm::ComputeVelocityGradient() {
 	int *type = atom->type;
 	double **x = atom->x;
+	double *damage = atom->damage;
 	int nlocal = atom->nlocal;
 	int i, itype;
 
@@ -493,8 +494,10 @@ void PairSmdWlsMpm::ComputeVelocityGradient() {
 
 			if (norm < MIN_NORM) {
 				L[i] = velocity_gradient;
+				damage[i] = 1.0;
 			} else {
 				L[i] = icellsize * velocity_gradient_wls / norm;
+				damage[i] = 0.0;
 			}
 		}
 

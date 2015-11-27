@@ -71,6 +71,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	eos = viscosity = strength = NULL;
 	c0_type = NULL;
 	c0 = NULL;
+	heat_conduction_coeff = NULL;
 	Lookup = NULL;
 
 	nmax = 0; // make sure no atom on this proc such that initial memory allocation is correct
@@ -78,7 +79,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	numNeighs = NULL;
 	particleVelocities = particleAccelerations = NULL;
 	heat_gradient = NULL;
-	particleHeatRate = NULL;
+	particleHeat = particleHeatRate = NULL;
 
 	comm_forward = 20; // this pair style communicates 8 doubles to ghost atoms
 
@@ -97,6 +98,7 @@ PairSmdMpm::~PairSmdMpm() {
 		memory->destroy(viscosity);
 		memory->destroy(strength);
 		memory->destroy(c0_type);
+		memory->destroy(heat_conduction_coeff);
 		memory->destroy(Lookup);
 
 		delete[] c0;
@@ -108,6 +110,7 @@ PairSmdMpm::~PairSmdMpm() {
 		delete[] particleAccelerations;
 		delete[] heat_gradient;
 		delete[] particleHeatRate;
+		delete[] particleHeat;
 
 	}
 }
@@ -128,10 +131,8 @@ void PairSmdMpm::CreateGrid() {
 	//printf("bounds max: %f %f %f\n", domain->subhi[0], domain->subhi[1], domain->subhi[2]);
 
 	// get min / max position of all particles
-	minx = miny = minz = BIG
-	;
-	maxx = maxy = maxz = -BIG
-	;
+	minx = miny = minz = BIG;
+	maxx = maxy = maxz = -BIG;
 
 	for (i = 0; i < nall; i++) {
 		itype = type[i];
@@ -417,11 +418,11 @@ void PairSmdMpm::ComputeVelocityGradient() {
 	int i, itype;
 
 	int ix, iy, iz, jx, jy, jz;
-	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
+	double px_shifted_scaled, py_shifted_scaled, pz_shifted_scaled; // shifted coords of particles
 	Vector3d g, vel_grid;
 	Matrix3d velocity_gradient;
-	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf, wfdx, wfdy;
-	double delz_scaled, delz_scaled_abs, wfz, wfdz;
+	double delx_scaled, dely_scaled, wfx, wfy, wf, wfdx, wfdy;
+	double delz_scaled, wfz, wfdz;
 
 	for (i = 0; i < nlocal; i++) {
 
@@ -430,43 +431,28 @@ void PairSmdMpm::ComputeVelocityGradient() {
 
 			heat_gradient[i].setZero();
 			velocity_gradient.setZero();
-			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
-			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
-			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
+			px_shifted_scaled = x[i][0] * icellsize - min_ix + GRID_OFFSET; // these are the particle's coords in units of the underlying grid,
+			py_shifted_scaled = x[i][1] * icellsize - min_iy + GRID_OFFSET; // shifted in space to align with the grid
+			pz_shifted_scaled = x[i][2] * icellsize - min_iz + GRID_OFFSET;
 
-			ix = icellsize * px_shifted;
-			iy = icellsize * py_shifted;
-			iz = icellsize * pz_shifted;
+			ix = (int) px_shifted_scaled;
+			iy = (int) py_shifted_scaled;
+			iz = (int) pz_shifted_scaled;
 
 			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
-
-				delx_scaled = px_shifted * icellsize - 1.0 * jx;
-				delx_scaled_abs = fabs(delx_scaled);
-				wfx = DisneyKernel(delx_scaled_abs);
+				delx_scaled = px_shifted_scaled - 1.0 * jx;
+				DisneyKernelAndDerivative(icellsize, delx_scaled, wfx, wfdx);
 				if (wfx > 0.0) {
-					wfdx = DisneyKernelDerivative(delx_scaled_abs) * icellsize;
-					if (delx_scaled < 0.0)
-						wfdx = -wfdx;
 
 					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
-
-						dely_scaled = py_shifted * icellsize - 1.0 * jy;
-						dely_scaled_abs = fabs(dely_scaled);
-						wfy = DisneyKernel(dely_scaled_abs);
+						dely_scaled = py_shifted_scaled - 1.0 * jy;
+						DisneyKernelAndDerivative(icellsize, dely_scaled, wfy, wfdy);
 						if (wfy > 0.0) {
-							wfdy = DisneyKernelDerivative(dely_scaled_abs) * icellsize;
-							if (dely_scaled < 0.0)
-								wfdy = -wfdy;
 
 							for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
-
-								delz_scaled = pz_shifted * icellsize - 1.0 * jz;
-								delz_scaled_abs = fabs(delz_scaled);
-								wfz = DisneyKernel(delz_scaled_abs);
+								delz_scaled = pz_shifted_scaled - 1.0 * jz;
+								DisneyKernelAndDerivative(icellsize, delz_scaled, wfz, wfdz);
 								if (wfz > 0.0) {
-									wfdz = DisneyKernelDerivative(delz_scaled_abs) * icellsize;
-									if (delz_scaled < 0.0)
-										wfdz = -wfdz;
 
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
@@ -474,10 +460,8 @@ void PairSmdMpm::ComputeVelocityGradient() {
 									g(1) = wfdy * wfx * wfz;
 									g(2) = wfdz * wfx * wfy;
 
-									//vel_grid << gridnodes[jx][jy][jz].vestx, gridnodes[jx][jy][jz].vesty, gridnodes[jx][jy][jz].vestz;
-									//velocity_gradient += vel_grid * g.transpose();
 									velocity_gradient += gridnodes[jx][jy][jz].vest * g.transpose();
-									heat_gradient[i] += gridnodes[jx][jy][jz].heat * g;
+									heat_gradient[i] += gridnodes[jx][jy][jz].heat * g; // units: energy / distance
 								}
 							}
 						}
@@ -494,14 +478,14 @@ void PairSmdMpm::ComputeGridForces() {
 	double **x = atom->x;
 	double **f = atom->f;
 	double *vfrac = atom->vfrac;
+	double *rmass = atom->rmass;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
 	int i, itype;
 	int ix, iy, iz, jx, jy, jz;
-	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
-	Vector3d g, force;
-	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf, wfdx, wfdy;
-	double delz_scaled, delz_scaled_abs, wfz, wfdz, vol;
+	double px_shifted_scaled, py_shifted_scaled, pz_shifted_scaled;
+	Vector3d g, force, scaled_temperature_gradient;
+	double delx_scaled, dely_scaled, delz_scaled, wfx, wfy, wfz, wf, wfdx, wfdy, wfdz;
 	Matrix3d scaledStress;
 
 // ---- compute internal forces ---
@@ -510,46 +494,32 @@ void PairSmdMpm::ComputeGridForces() {
 		itype = type[i];
 		if (setflag[itype][itype]) {
 
-			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
-			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
-			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
+			px_shifted_scaled = x[i][0] * icellsize - min_ix + GRID_OFFSET; // these are the particle's coords in units of the underlying grid,
+			py_shifted_scaled = x[i][1] * icellsize - min_iy + GRID_OFFSET; // shifted in space to align with the grid
+			pz_shifted_scaled = x[i][2] * icellsize - min_iz + GRID_OFFSET;
 
-			ix = icellsize * px_shifted;
-			iy = icellsize * py_shifted;
-			iz = icellsize * pz_shifted;
+			ix = (int) px_shifted_scaled;
+			iy = (int) py_shifted_scaled;
+			iz = (int) pz_shifted_scaled;
 
-			vol = vfrac[i];
-			scaledStress = -vol * stressTensor[i];
+			scaledStress = -vfrac[i] * stressTensor[i];
+			scaled_temperature_gradient = -vfrac[i] * heat_conduction_coeff[itype] * heat_gradient[i] /
+					(Lookup[HEAT_CAPACITY][itype] * rmass[i]); // units: volume * Temperature  / distance
 
 			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
-
-				delx_scaled = px_shifted * icellsize - 1.0 * jx;
-				delx_scaled_abs = fabs(delx_scaled);
-				wfx = DisneyKernel(delx_scaled_abs);
+				delx_scaled = px_shifted_scaled - 1.0 * jx;
+				DisneyKernelAndDerivative(icellsize, delx_scaled, wfx, wfdx);
 				if (wfx > 0.0) {
-					wfdx = DisneyKernelDerivative(delx_scaled_abs) * icellsize;
-					if (delx_scaled < 0.0)
-						wfdx = -wfdx;
 
 					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
-
-						dely_scaled = py_shifted * icellsize - 1.0 * jy;
-						dely_scaled_abs = fabs(dely_scaled);
-						wfy = DisneyKernel(dely_scaled_abs);
+						dely_scaled = py_shifted_scaled - 1.0 * jy;
+						DisneyKernelAndDerivative(icellsize, dely_scaled, wfy, wfdy);
 						if (wfy > 0.0) {
-							wfdy = DisneyKernelDerivative(dely_scaled_abs) * icellsize;
-							if (dely_scaled < 0.0)
-								wfdy = -wfdy;
 
 							for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
-
-								delz_scaled = pz_shifted * icellsize - 1.0 * jz;
-								delz_scaled_abs = fabs(delz_scaled);
-								wfz = DisneyKernel(delz_scaled_abs);
+								delz_scaled = pz_shifted_scaled - 1.0 * jz;
+								DisneyKernelAndDerivative(icellsize, delz_scaled, wfz, wfdz);
 								if (wfz > 0.0) {
-									wfdz = DisneyKernelDerivative(delz_scaled_abs) * icellsize;
-									if (delz_scaled < 0.0)
-										wfdz = -wfdz;
 
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
@@ -564,7 +534,7 @@ void PairSmdMpm::ComputeGridForces() {
 									force(2) += wf * f[i][2];
 
 									gridnodes[jx][jy][jz].f += force;
-									gridnodes[jx][jy][jz].dheat_dt -= 0.1*g.dot(heat_gradient[i]);
+									gridnodes[jx][jy][jz].dheat_dt += scaled_temperature_gradient.dot(g);
 								}
 							}
 						}
@@ -591,7 +561,7 @@ void PairSmdMpm::UpdateGridVelocities() {
 					if (gridnodes[ix][iy][iz].isVelocityBC == false) {
 						dtm = update->dt / gridnodes[ix][iy][iz].mass;
 						gridnodes[ix][iy][iz].v += dtm * gridnodes[ix][iy][iz].f;
-						gridnodes[ix][iy][iz].heat += update->dt * gridnodes[ix][iy][iz].dheat_dt;
+						gridnodes[ix][iy][iz].heat += dtm * gridnodes[ix][iy][iz].dheat_dt;
 					} else {
 						//gridnodes[ix][iy][iz].fx = 0.0;
 						//gridnodes[ix][iy][iz].fy = 0.0;
@@ -635,6 +605,7 @@ void PairSmdMpm::GridToPoints() {
 
 			particleVelocities[i].setZero();
 			particleAccelerations[i].setZero();
+			particleHeat[i] = 0.0;
 			particleHeatRate[i] = 0.0;
 			vel_particle << v[i][0], v[i][1], v[i][2];
 			Bp.setZero();
@@ -681,6 +652,7 @@ void PairSmdMpm::GridToPoints() {
 									if (gridnodes[jx][jy][jz].mass > MASS_CUTOFF) {
 										particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f / gridnodes[jx][jy][jz].mass;
 										particleHeatRate[i] += wf * gridnodes[jx][jy][jz].dheat_dt;
+										particleHeat[i] += wf * gridnodes[jx][jy][jz].heat;
 									}
 
 //						if (wf > 0.0) {
@@ -848,6 +820,8 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 		Bp_exists = false;
 		delete[] heat_gradient;
 		heat_gradient = new Vector3d[nmax];
+		delete[] particleHeat;
+		particleHeat = new double[nmax];
 		delete[] particleHeatRate;
 		particleHeatRate = new double[nmax];
 	}
@@ -1170,6 +1144,7 @@ void PairSmdMpm::allocate() {
 	memory->create(Q1, n + 1, "pair:Q1");
 	memory->create(rho0, n + 1, "pair:Q2");
 	memory->create(c0_type, n + 1, "pair:c0_type");
+	memory->create(heat_conduction_coeff, n + 1, "pair:heat_conduction_coeff");
 	memory->create(eos, n + 1, "pair:eosmodel");
 	memory->create(viscosity, n + 1, "pair:viscositymodel");
 	memory->create(strength, n + 1, "pair:strengthmodel");
@@ -1183,6 +1158,7 @@ void PairSmdMpm::allocate() {
 	 */
 
 	for (int i = 1; i <= n; i++) {
+		heat_conduction_coeff[i] = 0.0;
 		for (int j = i; j <= n; j++) {
 			setflag[i][j] = 0;
 		}
@@ -1552,6 +1528,35 @@ void PairSmdMpm::coeff(int narg, char **arg) {
 					printf(FORMAT1, "viscosity mu", Lookup[VISCOSITY_MU][itype]);
 				}
 			} // end *STRENGTH_VISCOSITY_NEWTON
+			else if (strcmp(arg[ioffset], "*HEAT_CONDUCTION") == 0) {
+
+				t = string("*");
+				iNextKwd = -1;
+				for (iarg = ioffset + 1; iarg < narg; iarg++) {
+					s = string(arg[iarg]);
+					if (s.compare(0, t.length(), t) == 0) {
+						iNextKwd = iarg;
+						break;
+					}
+				}
+
+				if (iNextKwd < 0) {
+					sprintf(str, "no *KEYWORD terminates *HEAT_CONDUCTION");
+					error->all(FLERR, str);
+				}
+
+				if (iNextKwd - ioffset != 1 + 1) {
+					sprintf(str, "expected 1 arguments following *HEAT_CONDUCTION but got %d\n", iNextKwd - ioffset - 1);
+					error->all(FLERR, str);
+				}
+
+				heat_conduction_coeff[itype] = force->numeric(FLERR, arg[ioffset + 1]);
+
+				if (comm->me == 0) {
+					printf(FORMAT2, "Fourier type heat conduction");
+					printf(FORMAT1, "kappa", heat_conduction_coeff[itype]);
+				}
+			} // end *HEAT_CONDUCTION
 
 			else {
 				sprintf(str, "unknown *KEYWORD: %s", arg[ioffset]);
@@ -1766,6 +1771,8 @@ void *PairSmdMpm::extract(const char *str, int &i) {
 		return (void *) particleVelocities;
 	} else if (strcmp(str, "smd/mpm/particleAccelerations_ptr") == 0) {
 		return (void *) particleAccelerations;
+	} else if (strcmp(str, "smd/mpm/particleHeat_ptr") == 0) {
+		return (void *) particleHeat;
 	} else if (strcmp(str, "smd/mpm/particleHeatRate_ptr") == 0) {
 		return (void *) particleHeatRate;
 	}
@@ -1813,12 +1820,15 @@ void PairSmdMpm::SolveHeatEquation() {
 		for (iy = 1; iy < grid_ny - 1; iy++) {
 			for (iz = 1; iz < grid_nz - 1; iz++) {
 
-				// second derivative of heat in x direction
-				d2heat_dx2 = gridnodes[ix + 1][iy][iz].heat - 2.0 * gridnodes[ix][iy][iz].heat + gridnodes[ix + 1][iy][iz].heat;
-				d2heat_dy2 = gridnodes[ix][iy + 1][iz].heat - 2.0 * gridnodes[ix][iy][iz].heat + gridnodes[ix][iy + 1][iz].heat;
-				d2heat_dz2 = gridnodes[ix][iy][iz + 1].heat - 2.0 * gridnodes[ix][iy][iz].heat + gridnodes[ix][iy][iz + 1].heat;
+				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+					// second derivative of heat in x direction
+					d2heat_dx2 = gridnodes[ix + 1][iy][iz].heat - 2.0 * gridnodes[ix][iy][iz].heat + gridnodes[ix - 1][iy][iz].heat;
+					d2heat_dy2 = gridnodes[ix][iy + 1][iz].heat - 2.0 * gridnodes[ix][iy][iz].heat + gridnodes[ix][iy - 1][iz].heat;
+					d2heat_dz2 = gridnodes[ix][iy][iz + 1].heat - 2.0 * gridnodes[ix][iy][iz].heat + gridnodes[ix][iy][iz - 1].heat;
 
-				gridnodes[ix][iy][iz].dheat_dt = d2heat_dx2 + d2heat_dy2 + d2heat_dz2;
+					gridnodes[ix][iy][iz].dheat_dt = d2heat_dx2 + d2heat_dy2 + d2heat_dz2;
+
+				}
 
 			}
 		}
