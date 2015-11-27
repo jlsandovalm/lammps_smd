@@ -44,13 +44,13 @@ set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
 set             group all smd_contact_radius ${cr}
 
-pair_style      hybrid/overlay  smd/hertz 1.0 smd/wlsmpm ${mpm_cellsize}
+pair_style      hybrid/overlay  smd/hertz 1.0 smd/mpm ${mpm_cellsize}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
-pair_coeff      1 1 smd/wlsmpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+pair_coeff      1 1 smd/mpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
                 *STRENGTH_LINEAR ${G} &
 	        *END
-pair_coeff      2 2 smd/wlsmpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+pair_coeff      2 2 smd/mpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
                 *STRENGTH_LINEAR ${G} &
 	        *END
