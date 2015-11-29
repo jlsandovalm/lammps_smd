@@ -175,6 +175,7 @@ void FixSMDTlsphDtReset::end_of_step() {
 		force->pair->reset_dt();
 	for (int i = 0; i < modify->nfix; i++)
 		modify->fix[i]->reset_dt();
+	update->atime = t_elapsed;
 }
 
 /* ---------------------------------------------------------------------- */

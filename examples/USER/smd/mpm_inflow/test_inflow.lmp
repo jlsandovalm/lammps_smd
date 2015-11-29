@@ -28,9 +28,9 @@ variable        temp_right equal 100
 ####################################################################################################
 units		si
 dimension       3
-boundary        f f sm
+boundary        f f f
 atom_style      smd
-neigh_modify    every 5 delay 0 check yes
+neigh_modify    every 1 delay 0 check yes
 comm_modify     vel yes cutoff 0.1
 newton          off
 atom_modify     map hash
@@ -44,10 +44,7 @@ region          box block 0 10 0 10 0 10 units lattice
 region          inflow block 3 7 3 7 9.5 10 units lattice
 create_box      1 box
 
-####################################################################################################
-# DEFINE BOUNDARY CONDITIONS
-#
-####################################################################################################
+
 
 ####################################################################################################
 # CREATE PARTICLES
@@ -60,9 +57,9 @@ create_atoms    1 single 5 5 5
 ####################################################################################################
 variable        dtCFL equal 0.1*sqrt(${K}/${rho})
 variable        h equal 2.5*${l0} # SPH kernel diameter
-variable        vol_one equal ${l0}^2 # initial particle volume for 2d simulation
+variable        vol_one equal ${l0}^3 # initial particle volume for 2d simulation
 variable        contact_radius equal ${l0}/2
-set             group all diameter ${h}
+set             group all diameter ${l0}
 set             group all smd_contact_radius ${contact_radius}
 set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho}
@@ -71,6 +68,12 @@ variable        skin equal ${h} # Verlet list range
 neighbor        ${skin} bin
 variable        mpm_cellsize equal 1.0*${l0}
 
+####################################################################################################
+# DEFINE BOUNDARY CONDITIONS
+####################################################################################################
+fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE zlo 0.0 units box
+fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
+fix 		inflow all smd/inflow rho 1000 radius ${l0} freq 20 region inflow velocity -1.0 units lattice
 
 ####################################################################################################
 # SET TEMPERATURE
@@ -95,7 +98,7 @@ pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
-#fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
 fix             integration_fix_water all smd/integrate_mpm FLIP 0.99
 
 ####################################################################################################
@@ -110,7 +113,7 @@ compute         S all smd/ulsph_stress
 compute         D all smd/ulsph_strain_rate
 compute         q all smd/heat
 
-dump            dump_id all custom 1 dump.LAMMPS id type x y z &
+dump            dump_id all custom 100 dump.LAMMPS id type x y z &
                 fx fy fz vx vy vz c_eint c_contact_radius mol &
                 radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_q
 dump_modify     dump_id first yes
@@ -122,8 +125,8 @@ dump_modify     dump_id first yes
 compute         alleint all reduce sum c_eint
 compute         allq all reduce sum c_q
 variable        etot equal pe+ke+c_alleint # total energy of the system
-thermo          1
-thermo_style    custom step ke pe v_etot c_alleint dt c_vol c_allq
+thermo          100
+thermo_style    custom step ke pe v_etot c_alleint dt time
 thermo_modify   lost ignore
 
 ####################################################################################################
@@ -131,12 +134,14 @@ thermo_modify   lost ignore
 ####################################################################################################
 
 
-fix 1 all smd/inflow zhi size 1.0 rho 999.9 radius ${l0}  freq 111 region inflow units lattice
-timestep 0.001
+
 velocity  all set 0 0 -0.01 units box
 
 
-run 200
+run 5050
+
+unfix  		inflow
+run             5000
 #
 dump		dump_fix all custom 1 dump.last id type x c_q
 dump_modify     dump_fix first yes

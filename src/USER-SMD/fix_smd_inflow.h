@@ -51,7 +51,14 @@ class FixSmdInflow : public Fix {
   double *gfactor1,*gfactor2;
   int nregion;
 
+  bool first;
+
   double rho, radius_one, contact_radius, vx, vy, vz;
+  double last_time;
+  double particle_spacing;
+  double velocity;
+  double insertion_height;
+  double last_insertion_height;
 };
 
 }
