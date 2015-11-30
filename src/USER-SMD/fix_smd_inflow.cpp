@@ -50,24 +50,14 @@ FixSmdInflow::FixSmdInflow(LAMMPS *lmp, int narg, char **arg) :
 	if (narg < 4)
 		error->all(FLERR, "Illegal fix append/atoms command");
 
-	// default settings
+	xflag = yflag = zflag = 0;
 
-	scaleflag = 1;
-	spatflag = 0;
-	xloflag = xhiflag = yloflag = yhiflag = zloflag = zhiflag = 0;
+	if (domain->lattice->nbasis != 1)
+		error->all(FLERR, "Fix append/atoms requires a lattice with one basis atom to be defined");
 
-	tempflag = 0;
-
-	ranflag = 0;
-	ranx = 0.0;
-	rany = 0.0;
-	ranz = 0.0;
-
-	randomx = NULL;
-	randomt = NULL;
-
-	if (domain->lattice->nbasis == 0)
-		error->all(FLERR, "Fix append/atoms requires a lattice be defined");
+	if ((domain->lattice->basis[0][0] != 0.0) || (domain->lattice->basis[0][1] != 0.0) || (domain->lattice->basis[0][2] != 0.0)) {
+		error->all(FLERR, "Fix append/atoms requires a simple cubic lattice with a zero basis in 3d");
+	}
 
 	nbasis = domain->lattice->nbasis;
 	basistype = new int[nbasis];
@@ -77,7 +67,7 @@ FixSmdInflow::FixSmdInflow(LAMMPS *lmp, int narg, char **arg) :
 	particle_spacing = domain->lattice->xlattice;
 	last_time = update->atime;
 	velocity = 0.0;
-	insertion_height = last_insertion_height = 10.0;
+
 	first = true;
 
 	int iarg = 0;
@@ -110,66 +100,109 @@ FixSmdInflow::FixSmdInflow(LAMMPS *lmp, int narg, char **arg) :
 				error->all(FLERR, "Illegal fix append/atoms command. Expected float following velocity keyword");
 			velocity = force->numeric(FLERR, arg[iarg + 1]);
 			iarg += 2;
-		} else if (strcmp(arg[iarg], "units") == 0) {
+		} else if (strcmp(arg[iarg], "direction") == 0) {
 			if (iarg + 2 > narg)
-				error->all(FLERR, "Illegal fix append/atoms command");
-			if (strcmp(arg[iarg + 1], "box") == 0)
-				scaleflag = 0;
-			else if (strcmp(arg[iarg + 1], "lattice") == 0)
-				scaleflag = 1;
-			else
-				error->all(FLERR, "Illegal fix append/atoms command");
+				error->all(FLERR, "Illegal fix append/atoms command. Expected x or y or z following direction keyword");
+			if (strcmp(arg[iarg + 1], "x") == 0) {
+				xflag = 1;
+			} else if (strcmp(arg[iarg + 1], "y") == 0) {
+				yflag = 1;
+			} else if (strcmp(arg[iarg + 1], "z") == 0) {
+				zflag = 1;
+			} else {
+				error->all(FLERR, "Illegal fix append/atoms command. Expected x or y or z following direction keyword");
+			}
 			iarg += 2;
 		} else
 			error->all(FLERR, "Illegal fix append/atoms command");
 	}
 
-	if ((xloflag || xhiflag) && domain->xperiodic)
-		error->all(FLERR, "Cannot use append/atoms in periodic dimension");
-	if ((yloflag || yhiflag) && domain->yperiodic)
-		error->all(FLERR, "Cannot use append/atoms in periodic dimension");
-	if ((zloflag || zhiflag) && domain->zperiodic)
-		error->all(FLERR, "Cannot use append/atoms in periodic dimension");
+	// check if insertion direction has been correctly defined
+	if (xflag + yflag + zflag != 1) {
+		error->all(FLERR, "Illegal fix append/atoms command. check direction.");
+	}
 
 	if (domain->triclinic == 1)
 		error->all(FLERR, "Cannot append atoms to a triclinic box");
 
-	// setup scaling
+	// check insertion region for validity
 
-	double xscale, yscale, zscale;
-	if (scaleflag) {
-		xscale = domain->lattice->xlattice;
-		yscale = domain->lattice->ylattice;
-		zscale = domain->lattice->zlattice;
-	} else
-		xscale = yscale = zscale = 1.0;
-
-	if (xloflag || xhiflag)
-		size *= xscale;
-	if (yloflag || yhiflag)
-		size *= yscale;
-	if (zloflag || zhiflag)
-		size *= zscale;
-
-	if (ranflag) {
-		ranx *= xscale;
-		rany *= yscale;
-		ranz *= zscale;
+	if (domain->regions[nregion]->bboxflag != 1) {
+		error->all(FLERR,
+				"insertion region for fix append atoms is of wrong type, use one for which a bounding box can be computed, e.g. block");
 	}
+
+	extent_xlo = domain->regions[nregion]->extent_xlo;
+	extent_xhi = domain->regions[nregion]->extent_xhi;
+	extent_ylo = domain->regions[nregion]->extent_ylo;
+	extent_yhi = domain->regions[nregion]->extent_yhi;
+	extent_zlo = domain->regions[nregion]->extent_zlo;
+	extent_zhi = domain->regions[nregion]->extent_zhi;
+
+	double delx = extent_xhi - extent_xlo;
+	double dely = extent_yhi - extent_ylo;
+	double delz = extent_zhi - extent_zlo;
+
+	if (xflag) {
+		if (delx > 0.999 * domain->lattice->xlattice) {
+			error->all(FLERR,
+					"insertion region is too deep in x direction. Reduce size so it is smaller than one lattice spacing.");
+		}
+	} else if (yflag) {
+		if (dely > 0.999 * domain->lattice->ylattice) {
+			error->all(FLERR,
+					"insertion region is too deep in y direction. Reduce size so it is smaller than one lattice spacing.");
+		}
+	} else if (zflag) {
+		if (delz > 0.999 * domain->lattice->zlattice) {
+			printf("delz = %f\n", delz);
+			error->all(FLERR,
+					"insertion region is too deep in z direction. Reduce size so it is smaller than one lattice spacing.");
+		}
+	}
+
+	/*
+	 * determine insertion position
+	 */
+
+	double xmin, ymin, zmin, xmax, ymax, zmax;
+	xmin = ymin = zmin = BIG;
+	xmax = ymax = zmax = -BIG;
+
+	domain->lattice->bbox(1, extent_xlo, extent_ylo, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+	domain->lattice->bbox(1, extent_xhi, extent_ylo, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+	domain->lattice->bbox(1, extent_xlo, extent_yhi, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+	domain->lattice->bbox(1, extent_xhi, extent_yhi, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+	domain->lattice->bbox(1, extent_xlo, extent_ylo, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
+	domain->lattice->bbox(1, extent_xhi, extent_ylo, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
+	domain->lattice->bbox(1, extent_xlo, extent_yhi, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
+	domain->lattice->bbox(1, extent_xhi, extent_yhi, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
+
+	int ilo, ihi, jlo, jhi, klo, khi;
+	ilo = static_cast<int>(xmin);
+	jlo = static_cast<int>(ymin);
+	klo = static_cast<int>(zmin);
+	ihi = static_cast<int>(xmax);
+	jhi = static_cast<int>(ymax);
+	khi = static_cast<int>(zmax);
+
+	if (xflag) {
+		insertion_height = last_insertion_height = ilo * domain->lattice->xlattice;
+	} else if (zflag) {
+		insertion_height = last_insertion_height = khi * domain->lattice->zlattice;
+	}
+
+	printf("insertion height is at %f\n", insertion_height);
+
+	//printf("z max index is %d -- position is %f\n", khi, khi * domain->lattice->zlattice);
+	//printf("jhi = %d, khi = %d\n", klo, khi);
+
 }
 
 /* ---------------------------------------------------------------------- */
 
 FixSmdInflow::~FixSmdInflow() {
 	delete[] basistype;
-
-	if (ranflag)
-		delete randomx;
-	if (tempflag) {
-		delete randomt;
-		delete[] gfactor1;
-		delete[] gfactor2;
-	}
 }
 
 /* ---------------------------------------------------------------------- */
@@ -178,7 +211,7 @@ int FixSmdInflow::setmask() {
 	int mask = 0;
 	mask |= PRE_EXCHANGE;
 	mask |= INITIAL_INTEGRATE;
-	//mask |= POST_FORCE;
+//mask |= POST_FORCE;
 	return mask;
 }
 
@@ -198,179 +231,21 @@ void FixSmdInflow::setup(int vflag) {
 
 /* ---------------------------------------------------------------------- */
 
-int FixSmdInflow::get_spatial() {
-
-	error->one(FLERR, "get_spatial");
-
-	if (update->ntimestep % freq == 0) {
-		int ifix = modify->find_fix(spatialid);
-		if (ifix < 0)
-			error->all(FLERR, "Fix ID for fix ave/spatial does not exist");
-		Fix *fix = modify->fix[ifix];
-
-		int failed = 0;
-		int count = 0;
-		while (failed < 2) {
-			double tmp = fix->compute_vector(2 * count);
-			if (tmp == 0.0)
-				failed++;
-			else
-				failed = 0;
-			count++;
-		}
-		double *pos = new double[count - 2];
-		double *val = new double[count - 2];
-		for (int loop = 0; loop < count - 2; loop++) {
-			pos[loop] = fix->compute_vector(2 * loop);
-			val[loop] = fix->compute_vector(2 * loop + 1);
-		}
-
-		// always ignore the first and last
-
-		double binsize = 2.0;
-		double min_energy = 0.0;
-		double max_energy = 0.0;
-		int header = static_cast<int>(size / binsize);
-		advance = 0;
-
-		for (int loop = 1; loop <= header; loop++) {
-			max_energy += val[loop];
-		}
-		for (int loop = count - 2 - 2 * header; loop <= count - 3 - header; loop++) {
-			min_energy += val[loop];
-		}
-		max_energy /= header;
-		min_energy /= header;
-
-		double shockfront_min = 0.0;
-		double shockfront_max = 0.0;
-		double shockfront_loc = 0.0;
-		int front_found1 = 0;
-		for (int loop = count - 3 - header; loop > header; loop--) {
-			if (front_found1 == 1)
-				continue;
-			if (val[loop] > min_energy + 0.1 * (max_energy - min_energy)) {
-				shockfront_max = pos[loop];
-				front_found1 = 1;
-			}
-		}
-		int front_found2 = 0;
-		for (int loop = header + 1; loop <= count - 3 - header; loop++) {
-			if (val[loop] > min_energy + 0.6 * (max_energy - min_energy)) {
-				shockfront_min = pos[loop];
-				front_found2 = 1;
-			}
-		}
-		if (front_found1 + front_found2 == 0)
-			shockfront_loc = 0.0;
-		else if (front_found1 + front_found2 == 1)
-			shockfront_loc = shockfront_max + shockfront_min;
-		else if (front_found1 == 1 && front_found2 == 1 && shockfront_max - shockfront_min > spatlead / 2.0)
-			shockfront_loc = shockfront_max;
-		else
-			shockfront_loc = (shockfront_max + shockfront_min) / 2.0;
-		if (comm->me == 0)
-			printf("SHOCK: %g %g %g %g %g\n", shockfront_loc, shockfront_min, shockfront_max, domain->boxlo[2], domain->boxhi[2]);
-
-		if (domain->boxhi[2] - shockfront_loc < spatlead)
-			advance = 1;
-
-		delete[] pos;
-		delete[] val;
-	}
-
-	advance_sum = 0;
-	MPI_Allreduce(&advance, &advance_sum, 1, MPI_INT, MPI_SUM, world);
-
-	if (advance_sum > 0)
-		return 1;
-	else
-		return 0;
-}
-
 /* ---------------------------------------------------------------------- */
 
 void FixSmdInflow::post_force(int vflag) {
 
 	return;
-
-	double **f = atom->f;
-	double **v = atom->v;
-	double **x = atom->x;
-	int *type = atom->type;
-	int nlocal = atom->nlocal;
-
-	double gamma1, gamma2;
-	double tsqrt = sqrt(t_target);
-
-	if (atom->mass) {
-		if (tempflag) {
-			for (int i = 1; i <= atom->ntypes; i++) {
-				gfactor1[i] = -atom->mass[i] / t_period / force->ftm2v;
-				gfactor2[i] = sqrt(atom->mass[i]) * sqrt(24.0 * force->boltz / t_period / update->dt / force->mvv2e) / force->ftm2v;
-			}
-		}
-		for (int i = 0; i < nlocal; i++) {
-			// SET TEMP AHEAD OF SHOCK
-			if (tempflag && x[i][2] >= domain->boxhi[2] - t_extent) {
-				gamma1 = gfactor1[type[i]];
-				gamma2 = gfactor2[type[i]] * tsqrt;
-				f[i][0] += gamma1 * v[i][0] + gamma2 * (randomt->uniform() - 0.5);
-				f[i][1] += gamma1 * v[i][1] + gamma2 * (randomt->uniform() - 0.5);
-				f[i][2] += gamma1 * v[i][2] + gamma2 * (randomt->uniform() - 0.5);
-			}
-			// FREEZE ATOMS AT BOUNDARY
-			if (x[i][2] >= domain->boxhi[2] - size) {
-				f[i][0] = 0.0;
-				f[i][1] = 0.0;
-				f[i][2] = 0.0;
-				v[i][0] = 0.0;
-				v[i][1] = 0.0;
-				v[i][2] = 0.0;
-			}
-		}
-	} else {
-		double *rmass = atom->rmass;
-		double boltz = force->boltz;
-		double dt = update->dt;
-		double mvv2e = force->mvv2e;
-		double ftm2v = force->ftm2v;
-
-		for (int i = 0; i < nlocal; i++) {
-
-			// set temp ahead of shock
-
-			if (tempflag && x[i][2] >= domain->boxhi[2] - t_extent) {
-				gamma1 = -rmass[i] / t_period / ftm2v;
-				gamma2 = sqrt(rmass[i]) * sqrt(24.0 * boltz / t_period / dt / mvv2e) / ftm2v;
-				gamma2 *= tsqrt;
-				f[i][0] += gamma1 * v[i][0] + gamma2 * (randomt->uniform() - 0.5);
-				f[i][1] += gamma1 * v[i][1] + gamma2 * (randomt->uniform() - 0.5);
-				f[i][2] += gamma1 * v[i][2] + gamma2 * (randomt->uniform() - 0.5);
-			}
-
-			// freeze atoms at boundary
-
-			if (x[i][2] >= domain->boxhi[2] - size) {
-				f[i][0] = 0.0;
-				f[i][1] = 0.0;
-				f[i][2] = 0.0;
-				v[i][0] = 0.0;
-				v[i][1] = 0.0;
-				v[i][2] = 0.0;
-			}
-		}
-	}
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixSmdInflow::pre_exchange() {
-	printf("proc %d enerts pre-exchange\n", comm->me);
 	int ntimestep = update->ntimestep;
 	int addnode = 0;
 
 	if (ntimestep % freq == 0) {
+		//printf("proc %d enerts pre-exchange\n", comm->me);
 
 		double current_time = update->atime;
 		double time_difference = current_time - last_time;
@@ -382,28 +257,23 @@ void FixSmdInflow::pre_exchange() {
 			displacement_excess = fabs(travel_distance) - particle_spacing;
 		}
 
-		/*
-		 * need to change code below so all procs enter into the barrier.
-		 * cannot have simple per-proc return statements
-		 */
-
-		//printf("current time ")
+//printf("current time ")
 		if (fabs(travel_distance) < particle_spacing) {
 			// cannot insert now
-			printf("cant insert at timestep %d: time difference since last insertion is %f, particle have travelled distance %f, last insertion height is %f\n",
-					update->ntimestep, time_difference, travel_distance, last_insertion_height);
+//			printf(
+//					"cant insert at timestep %d: time difference since last insertion is %f, particle have travelled distance %f, last insertion height is %f\n",
+//					update->ntimestep, time_difference, travel_distance, last_insertion_height);
 			//return;
 
 		} else {
-			printf("want to insert at timestep %d: time difference since last insertion is %f, particle have travelled distance %f, last insertion height is %f\n",
-								update->ntimestep, time_difference, travel_distance, last_insertion_height);
-			printf("velocity travelled distance is %f\n", time_difference * velocity);
-			printf("displacement excess is %f\n", displacement_excess);
+//			printf(
+//					"want to insert at timestep %d: time difference since last insertion is %f, particle have travelled distance %f, last insertion height is %f\n",
+//					update->ntimestep, time_difference, travel_distance, last_insertion_height);
+//			printf("velocity travelled distance is %f\n", time_difference * velocity);
+//			printf("displacement excess is %f\n", displacement_excess);
 			last_time = current_time;
-
-			if (spatflag == 1)
-				if (get_spatial() == 0)
-					return;
+			last_insertion_height = insertion_height - displacement_excess;
+			//printf("proc %d at N=%ld sets last_insertion_height to %f, travel is %f, spacing is %f \n", comm->me, update->ntimestep, last_insertion_height, travel_distance, particle_spacing);
 
 			int addflag = 0;
 			if (comm->layout != LAYOUT_TILED) {
@@ -416,27 +286,29 @@ void FixSmdInflow::pre_exchange() {
 
 			if (addflag) {
 
-				double bboxlo[3], bboxhi[3];
+				/*
+				 * the code below is for using the entire box for checking if an atom can be inserted
+				 * we do not use this as we can instead use only the insertion volume to generate lattice indices
+				 */
 
-				bboxlo[0] = domain->sublo[0];
-				bboxhi[0] = domain->subhi[0];
-				bboxlo[1] = domain->sublo[1];
-				bboxhi[1] = domain->subhi[1];
-				bboxlo[2] = domain->subhi[2];
-				bboxhi[2] = domain->subhi[2] + size;
-
+//				extent_xlo = domain->sublo[0];
+//				extent_xhi = domain->subhi[0];
+//				extent_ylo = domain->sublo[1];
+//				extent_yhi = domain->subhi[1];
+//				extent_zlo = domain->subhi[2];
+//				extent_zhi = domain->subhi[2];
 				double xmin, ymin, zmin, xmax, ymax, zmax;
 				xmin = ymin = zmin = BIG;
 				xmax = ymax = zmax = -BIG;
 
-				domain->lattice->bbox(1, bboxlo[0], bboxlo[1], bboxlo[2], xmin, ymin, zmin, xmax, ymax, zmax);
-				domain->lattice->bbox(1, bboxhi[0], bboxlo[1], bboxlo[2], xmin, ymin, zmin, xmax, ymax, zmax);
-				domain->lattice->bbox(1, bboxlo[0], bboxhi[1], bboxlo[2], xmin, ymin, zmin, xmax, ymax, zmax);
-				domain->lattice->bbox(1, bboxhi[0], bboxhi[1], bboxlo[2], xmin, ymin, zmin, xmax, ymax, zmax);
-				domain->lattice->bbox(1, bboxlo[0], bboxlo[1], bboxhi[2], xmin, ymin, zmin, xmax, ymax, zmax);
-				domain->lattice->bbox(1, bboxhi[0], bboxlo[1], bboxhi[2], xmin, ymin, zmin, xmax, ymax, zmax);
-				domain->lattice->bbox(1, bboxlo[0], bboxhi[1], bboxhi[2], xmin, ymin, zmin, xmax, ymax, zmax);
-				domain->lattice->bbox(1, bboxhi[0], bboxhi[1], bboxhi[2], xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xlo, extent_ylo, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xhi, extent_ylo, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xlo, extent_yhi, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xhi, extent_yhi, extent_zlo, xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xlo, extent_ylo, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xhi, extent_ylo, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xlo, extent_yhi, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
+				domain->lattice->bbox(1, extent_xhi, extent_yhi, extent_zhi, xmin, ymin, zmin, xmax, ymax, zmax);
 
 				int ilo, ihi, jlo, jhi, klo, khi;
 				ilo = static_cast<int>(xmin);
@@ -453,39 +325,41 @@ void FixSmdInflow::pre_exchange() {
 				if (zmin < 0.0)
 					klo--;
 
-				double **basis = domain->lattice->basis;
 				double x[3];
-				double *sublo = domain->sublo;
-				double *subhi = domain->subhi;
 
 				//printf("**** STILL WANT TO INSERT 0\n");
 
-				int i, j, k, m;
+				int i, j, k;
 				for (k = klo; k <= khi; k++) {
+
+					//printf("k = %d\n", k);
+
 					for (j = jlo; j <= jhi; j++) {
 						for (i = ilo; i <= ihi; i++) {
-							for (m = 0; m < nbasis; m++) {
-								x[0] = i + basis[m][0];
-								x[1] = j + basis[m][1];
-								x[2] = k + basis[m][2];
+							x[0] = i;
+							x[1] = j;
+							x[2] = k;
 
-								if (!domain->regions[nregion]->match(x[0], x[1], x[2]))
-									continue;
+							int flag = 0;
+							// convert from lattice coords to box coords
+							domain->lattice->lattice2box(x[0], x[1], x[2]);
 
-								int flag = 0;
-								// convert from lattice coords to box coords
-								domain->lattice->lattice2box(x[0], x[1], x[2]);
+							if (!domain->regions[nregion]->match(x[0], x[1], x[2])) {
+								//printf("no match for pos = %f %f %f\n", x[0], x[1], x[2]);
+								continue;
+							} else {
+								//printf("match for k=%d\n", k);
+							}
 
-								// store insertion axis position
-								if (fabs(x[2]) - insertion_height > 1.0e-16) {
-									printf("insertion position should be at %g bust is at %g\n", insertion_height, x[2]);
-									error->one(FLERR, "");
-								}
+//							if (fabs(x[2]) - insertion_height > 1.0e-16) {
+//								printf("insertion position should be at %g bust is at %g\n", insertion_height, x[2]);
+//								error->one(FLERR, "");
+//							}
 
-								//printf("initial z = %f\n", x[2]);
-								x[2] -= displacement_excess;
-								last_insertion_height = x[2];
-								//printf("final z = %f\n", x[2]);
+							//printf("initial z = %f\n", x[2]);
+							x[2] -= displacement_excess;
+							//last_insertion_height = x[2];
+							//printf("final z = %f\n", x[2]);
 
 //							if (x[0] >= sublo[0] && x[0] < subhi[0] && x[1] >= sublo[1] && x[1] < subhi[1] && x[2] >= subhi[2]
 //									&& x[2] < subhi[2] + size)
@@ -494,49 +368,59 @@ void FixSmdInflow::pre_exchange() {
 //									&& x[0] >= sublo[0] && x[0] < subhi[0])
 //								flag = 1;
 
-								flag = 1;
+							flag = 1;
 
-								//printf("**** STILL WANT TO INSERT 1\n");
+							//printf("**** STILL WANT TO INSERT 1\n");
 
-								if (flag) {
-									first = false;
+							if (flag) {
 
-									//printf("**** STILL WANT TO INSERT 2\n");
+								//printf("**** STILL WANT TO INSERT 2\n");
 
-									addnode++;
-									atom->avec->create_atom(basistype[m], x);
+								addnode++;
+								atom->avec->create_atom(basistype[0], x);
 
-									double volume_one = pow(domain->lattice->xlattice, 3); // particle volume
-									double mass_one = rho * volume_one;
+								double volume_one = pow(domain->lattice->xlattice, 3);						// particle volume
+								double mass_one = rho * volume_one;
 
-									int nlocal = atom->nlocal;
-									printf("nlocal = %d, vol=%f, mass=%f\n", nlocal, volume_one, mass_one);
-									int idx = nlocal - 1;
-									double *vfrac = atom->vfrac;
-									double *rmass = atom->rmass;
-									double *radius = atom->radius;
-									double **v = atom->v;
-									double **vest = atom->vest;
-									vfrac[idx] = volume_one;
-									rmass[idx] = mass_one;
+								int nlocal = atom->nlocal;
+								//printf("nlocal = %d, vol=%f, mass=%f\n", nlocal, volume_one, mass_one);
+								int idx = nlocal - 1;
+								double *vfrac = atom->vfrac;
+								double *rmass = atom->rmass;
+								double *radius = atom->radius;
+								double **v = atom->v;
+								double **vest = atom->vest;
+								vfrac[idx] = volume_one;
+								rmass[idx] = mass_one;
+								//radius[idx] = radius_one;
+
+								if (xflag) {
+									v[idx][0] = vest[idx][0] = velocity;
+									v[idx][1] = vest[idx][1] = 0.0;
+									v[idx][2] = vest[idx][2] = 0.0;
+								} else if (yflag) {
+									v[idx][0] = vest[idx][0] = 0.0;
+									v[idx][1] = vest[idx][1] = velocity;
+									v[idx][2] = vest[idx][2] = 0.0;
+								} else if (zflag) {
 									v[idx][0] = vest[idx][0] = 0.0;
 									v[idx][1] = vest[idx][1] = 0.0;
 									v[idx][2] = vest[idx][2] = velocity;
-									//radius[idx] = radius_one;
-
 								}
+
 							}
 						}
 					}
 				}
 			}
 			int addtotal = 0;
-			printf("proc %d is before barrier\n", comm->me);
+			//printf("proc %d is before barrier\n", comm->me);
 			MPI_Barrier(world);
 			MPI_Allreduce(&addnode, &addtotal, 1, MPI_INT, MPI_SUM, world);
-			printf("proc %d is after barrier\n", comm->me);
+			//printf("proc %d is after barrier\n", comm->me);
 
 			if (addtotal) {
+				first = false; // set first flag so insertion position is computed correctly upon next insert
 				domain->reset_box();
 				atom->natoms += addtotal;
 				if (atom->natoms < 0 || atom->natoms > MAXBIGINT)

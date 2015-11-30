@@ -8,7 +8,7 @@
 # MATERIAL PARAMETERS
 ####################################################################################################
 variable        rho equal 1000 # mass density water
-variable        c0 equal 63.0 # speed of sound for water
+variable        c0 equal 10.0 # speed of sound for water
 variable        K equal  ${c0}*${c0}*${rho} # Young's modulus for solid objects
 variable        nu equal 0.3 # Poisson ratio for solid objects
 variable        G equal 3*${K}*(1-2*${nu})/(2*(1+${nu}))
@@ -28,9 +28,9 @@ variable        temp_right equal 100
 ####################################################################################################
 units		si
 dimension       3
-boundary        f f f
+boundary        f f sm
 atom_style      smd
-neigh_modify    every 1 delay 0 check yes
+neigh_modify    every 100 delay 0 check yes
 comm_modify     vel yes cutoff 0.1
 newton          off
 atom_modify     map hash
@@ -40,8 +40,11 @@ comm_style      tiled
 # CREATE SIMULATION BOX
 ####################################################################################################
 variable        l0 equal 1 # initial particle lattice spacing
-region          box block 0 10 0 10 0 10 units lattice
-region          inflow block 3 7 3 7 9.5 10 units lattice
+lattice         sc ${l0}
+region          box block -10 30 -10 30 0 10 units lattice
+#region          inflow block 3 7 3 7 9.1 10 units lattice
+region          inflow block -10 -9.1 -10 7 7 10 units box
+region          inflow2 block 27 28 28.1 29 7 10 units box
 create_box      1 box
 
 
@@ -49,7 +52,7 @@ create_box      1 box
 ####################################################################################################
 # CREATE PARTICLES
 ####################################################################################################
-lattice         sc ${l0}
+
 create_atoms    1 single 5 5 5
 
 ####################################################################################################
@@ -72,8 +75,10 @@ variable        mpm_cellsize equal 1.0*${l0}
 # DEFINE BOUNDARY CONDITIONS
 ####################################################################################################
 fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE zlo 0.0 units box
+#fix             walls all wall/reflect zlo 0.0 units box
 fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
-fix 		inflow all smd/inflow rho 1000 radius ${l0} freq 20 region inflow velocity -1.0 units lattice
+fix 		inflow all smd/inflow rho 1000 radius ${l0} freq 20 region inflow velocity 0.05 direction x
+fix 		inflow2 all smd/inflow rho 1000 radius ${l0} freq 20 region inflow2 velocity -0.05 direction y
 
 ####################################################################################################
 # SET TEMPERATURE
@@ -99,7 +104,7 @@ pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water all smd/integrate_mpm FLIP 0.99
+fix             integration_fix_water all smd/integrate_mpm FLIP 0.9999
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -127,7 +132,7 @@ compute         allq all reduce sum c_q
 variable        etot equal pe+ke+c_alleint # total energy of the system
 thermo          100
 thermo_style    custom step ke pe v_etot c_alleint dt time
-thermo_modify   lost ignore
+thermo_modify   lost warn
 
 ####################################################################################################
 # RUN SIMULATION
@@ -135,15 +140,10 @@ thermo_modify   lost ignore
 
 
 
-velocity  all set 0 0 -0.01 units box
+velocity  all set 0 0 0 units box
 
 
-run 5050
+run 50000
 
 unfix  		inflow
-run             5000
-#
-dump		dump_fix all custom 1 dump.last id type x c_q
-dump_modify     dump_fix first yes
-run             0
-undump          dump_fix
+run             25000

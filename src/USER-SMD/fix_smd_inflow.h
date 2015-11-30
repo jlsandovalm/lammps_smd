@@ -35,30 +35,20 @@ class FixSmdInflow : public Fix {
   void post_force(int);
 
  private:
-  int get_spatial();
-  int spatflag, xloflag, xhiflag, yloflag, yhiflag, zloflag, zhiflag;
-  int ranflag, tempflag, xseed, tseed;
-  double ranx, rany, ranz, t_target, t_period, t_extent;
-  class RanMars *randomx;
-  class RanMars *randomt;
-  int scaleflag, freq;
+  int xflag, yflag, zflag, freq; // velocity direction of atoms
   int nbasis;
   int *basistype;
-  int advance,advance_sum;
-  double size,spatlead;
-  char *spatialid;
-  double tfactor;
-  double *gfactor1,*gfactor2;
   int nregion;
 
   bool first;
 
-  double rho, radius_one, contact_radius, vx, vy, vz;
+  double rho, radius_one, contact_radius;
   double last_time;
   double particle_spacing;
   double velocity;
   double insertion_height;
   double last_insertion_height;
+  double extent_xlo, extent_xhi, extent_ylo, extent_yhi, extent_zlo, extent_zhi;
 };
 
 }
