@@ -142,6 +142,7 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 	double **v = atom->v;
 	int *mask = atom->mask;
 	int nlocal = atom->nlocal;
+	tagint *mol = atom->molecule;
 
 	int i;
 
@@ -151,9 +152,11 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 	for (i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
 
-			x[i][0] += dtv * v[i][0];
-			x[i][1] += dtv * v[i][1];
-			x[i][2] += dtv * v[i][2];
+			//if (mol[i] != 1000) {
+				x[i][0] += dtv * v[i][0];
+				x[i][1] += dtv * v[i][1];
+				x[i][2] += dtv * v[i][2];
+			//}
 
 		}
 	}
@@ -224,15 +227,13 @@ void FixSMDIntegrateMpm::final_integrate() {
 			v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
 					+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 
-
 			vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
 			vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
 			vest[i][2] = v[i][2] + dtf * particleAccelerations[i](2);
 
 			e[i] += dtv * de[i];
 
-			heat[i] = (1. - flip_contribution) * particleHeat[i]
-					+ flip_contribution * (heat[i] + dtv * particleHeatRate[i]);
+			heat[i] = (1. - flip_contribution) * particleHeat[i] + flip_contribution * (heat[i] + dtv * particleHeatRate[i]);
 
 		}
 	}

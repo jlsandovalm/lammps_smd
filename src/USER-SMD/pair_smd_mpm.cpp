@@ -481,6 +481,7 @@ void PairSmdMpm::ComputeGridForces() {
 	double *rmass = atom->rmass;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
+	if (update->ntimes)
 	int i, itype;
 	int ix, iy, iz, jx, jy, jz;
 	double px_shifted_scaled, py_shifted_scaled, pz_shifted_scaled;
@@ -503,8 +504,8 @@ void PairSmdMpm::ComputeGridForces() {
 			iz = (int) pz_shifted_scaled;
 
 			scaledStress = -vfrac[i] * stressTensor[i];
-			scaled_temperature_gradient = -vfrac[i] * heat_conduction_coeff[itype] * heat_gradient[i] /
-					(Lookup[HEAT_CAPACITY][itype] * rmass[i]); // units: volume * Temperature  / distance
+			scaled_temperature_gradient = -vfrac[i] * heat_conduction_coeff[itype] * heat_gradient[i]
+					/ (Lookup[HEAT_CAPACITY][itype] * rmass[i]); // units: volume * Temperature  / distance
 
 			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 				delx_scaled = px_shifted_scaled - 1.0 * jx;
@@ -592,6 +593,9 @@ void PairSmdMpm::GridToPoints() {
 
 	for (i = 0; i < nlocal; i++) {
 
+		particleVelocities[i].setZero();
+		particleAccelerations[i].setZero();
+
 		itype = type[i];
 		if (setflag[itype][itype]) {
 
@@ -655,18 +659,19 @@ void PairSmdMpm::GridToPoints() {
 										particleHeat[i] += wf * gridnodes[jx][jy][jz].heat;
 									}
 
-//						if (wf > 0.0) {
-//							if (mol[i] == 1000) {
-//								if ((vel_grid - vel_particle).norm() > 1.0e-6) {
-//									cout << "mol = " << mol[i] << ",  grid BC status is " << gridnodes[jx][jy][jz].isVelocityBC
-//											<< endl;
-//									cout << "vel error " << (vel_grid - vel_particle).norm() << endl;
-//									cout << "grid vel is " << vel_grid.transpose() << endl;
-//									cout << "particle vel is " << vel_particle.transpose() << endl << endl;
-//
-//								}
-//							}
-//						}
+									if (wf > 0.0) {
+										if (mol[i] == 1000) {
+											printf("check\n");
+											if ((vel_grid - vel_particle).norm() > 1.0e-6) {
+												cout << "mol = " << mol[i] << ",  grid BC status is "
+														<< gridnodes[jx][jy][jz].isVelocityBC << endl;
+												cout << "vel error " << (vel_grid - vel_particle).norm() << endl;
+												cout << "grid vel is " << vel_grid.transpose() << endl;
+												cout << "particle vel is " << vel_particle.transpose() << endl << endl;
+
+											}
+										}
+									}
 
 								}
 							}
@@ -1126,6 +1131,19 @@ void PairSmdMpm::AssembleStressTensor() {
 		}
 		// end if (setflag[itype][itype] == 1)
 	} // end loop over nlocal
+
+	// fallback if no atoms are present:
+	int check_flag = 0;
+	for (itype = 1; itype < atom->ntypes; itype++) {
+		if (setflag[itype][itype] == 1) {
+			p_wave_speed = sqrt(Lookup[BULK_MODULUS][itype] / Lookup[REFERENCE_DENSITY][itype]);
+			dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
+			check_flag = 1;
+		}
+	}
+	if (check_flag == 0) {
+		error->one(FLERR, "pair smd/mpm could not compute a valid stable time increment");
+	}
 
 //printf("stable timestep = %g\n", 0.1 * hMin * MaxBulkVelocity);
 }
@@ -1637,7 +1655,7 @@ double PairSmdMpm::init_one(int i, int j) {
 	if (setflag[i][j] == 0)
 		error->all(FLERR, "All pair coeffs are not set");
 
-	return 3.0 * cellsize;
+	return 2.0 * cellsize;
 }
 
 /* ----------------------------------------------------------------------
@@ -1646,9 +1664,9 @@ double PairSmdMpm::init_one(int i, int j) {
 
 void PairSmdMpm::init_style() {
 // request a granular neighbor list
-	int irequest = neighbor->request(this);
-	neighbor->requests[irequest]->half = 0;
-	neighbor->requests[irequest]->gran = 1;
+	//int irequest = neighbor->request(this);
+	//neighbor->requests[irequest]->half = 0;
+	//neighbor->requests[irequest]->gran = 1;
 }
 
 /* ----------------------------------------------------------------------

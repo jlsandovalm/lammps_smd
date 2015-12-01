@@ -42,13 +42,19 @@ class FixSmdInflow : public Fix {
 
   bool first;
 
-  double rho, radius_one, contact_radius;
+  int type_one;
+  int insertion_dimension;
+  int rho_flag, velocity_flag, region_flag, freq_flag, type_flag;
+  double rho, radius_one, contact_radius_one, heat_one;
+  double volume_one, mass_one;
   double last_time;
   double particle_spacing;
   double velocity;
   double insertion_height;
   double last_insertion_height;
   double extent_xlo, extent_xhi, extent_ylo, extent_yhi, extent_zlo, extent_zhi;
+
+  char *idregion;
 };
 
 }

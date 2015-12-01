@@ -1,0 +1,149 @@
+####################################################################################################
+#
+# unit sytem: GPa / mm / ms
+#
+####################################################################################################
+
+####################################################################################################
+# MATERIAL PARAMETERS
+####################################################################################################
+variable        rho equal 1000 # mass density water
+variable        c0 equal 10.0 # speed of sound for water
+variable        K equal  ${c0}*${c0}*${rho} # Young's modulus for solid objects
+variable        nu equal 0.3 # Poisson ratio for solid objects
+variable        G equal 3*${K}*(1-2*${nu})/(2*(1+${nu}))
+variable        sigma_yield equal 1.1*${G} # plastic yield stress for solid objects
+variable        hardening_parameter equal 0 # plastic hardening parameter for solid objects
+variable        contact_stiffness equal 10*${K} # contact force amplitude
+variable        q1 equal 0.06 # artificial viscosity
+variable        q2 equal 0.0 # artificial viscosity
+variable        Hg equal 10 # Hourglass control coefficient for solid objects
+variable        Cp equal 1.0 # heat capacity -- not used here
+variable        contact_scale equal 2.0 # scale factor to increase contact gap between bodies
+variable        temp_left equal 200
+variable        temp_right equal 100
+
+####################################################################################################
+# INITIALIZE LAMMPS
+####################################################################################################
+units		si
+dimension       3
+boundary        f f sm
+atom_style      smd
+neigh_modify    every 100 delay 0 check yes
+comm_modify     vel yes cutoff 0.1
+newton          off
+atom_modify     map hash
+comm_style      tiled
+
+####################################################################################################
+# CREATE SIMULATION BOX
+####################################################################################################
+variable        l0 equal 1 # initial particle lattice spacing
+lattice         sc ${l0}
+region          box block 0 10 0 10 0 10 units box
+create_box      1 box
+region          inflow block 5 EDGE 5 EDGE 9.1 10 units box
+region          outflow block  EDGE 2 EDGE 2 0 1 units box
+
+
+
+
+####################################################################################################
+# CREATE PARTICLES
+####################################################################################################
+
+create_atoms    1 single 5 5 5
+
+####################################################################################################
+# DISCRETIZATION PARAMETERS
+####################################################################################################
+variable        dtCFL equal 0.1*sqrt(${K}/${rho})
+variable        h equal 2.5*${l0} # SPH kernel diameter
+variable        vol_one equal ${l0}^3 # initial particle volume for 2d simulation
+variable        contact_radius equal ${l0}/2
+set             group all diameter ${l0}
+set             group all smd_contact_radius ${contact_radius}
+set             group all volume  ${vol_one}
+set             group all smd_mass_density ${rho}
+
+variable        skin equal ${h} # Verlet list range
+neighbor        ${skin} bin
+variable        mpm_cellsize equal 1.0*${l0}
+
+####################################################################################################
+# DEFINE BOUNDARY CONDITIONS
+####################################################################################################
+fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE zlo 0.0 units box
+fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
+fix 		inflow all smd/inflow rho 1000 radius ${l0} freq 20 region inflow velocity -0.05 &
+                direction z type 1
+fix             outflow all smd/outflow 10 outflow
+
+####################################################################################################
+# SET TEMPERATURE
+####################################################################################################
+variable        mass_one equal ${rho}*${vol_one}
+variable 	heat_left equal ${temp_left}*${mass_one}*${Cp}
+variable 	heat_right equal ${temp_right}*${mass_one}*${Cp}
+
+####################################################################################################
+# INTERACTION PHYSICS / MATERIAL MODEL
+# 3 different pair styles are used:
+#     - updated Lagrangian SPH for water
+#     - total Lagrangian SPH for solid objects
+#     - a repulsive Hertzian potential for contact forces between different physical bodies
+####################################################################################################
+pair_style      smd/mpm ${mpm_cellsize}
+pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
+                              *EOS_TAIT 2 &
+			      *HEAT_CONDUCTION 1.0e4 &
+	                      *END
+
+####################################################################################################
+# TIME INTEGRATION
+####################################################################################################
+fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+fix             integration_fix_water all smd/integrate_mpm FLIP 0.9999
+
+####################################################################################################
+# SPECIFY TRAJECTORY OUTPUT
+####################################################################################################
+compute         eint all smd/internal_energy
+compute         contact_radius all smd/contact_radius
+compute         vol all smd/volume
+compute         rho all smd/rho
+compute         peatom all pe/atom
+compute         S all smd/ulsph_stress
+compute         D all smd/ulsph_strain_rate
+compute         q all smd/heat
+
+dump            dump_id all custom 100 dump.LAMMPS id type x y z &
+                fx fy fz vx vy vz c_eint c_contact_radius mol &
+                radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_q
+dump_modify     dump_id first yes
+
+
+####################################################################################################
+# STATUS OUTPUT
+####################################################################################################
+compute         alleint all reduce sum c_eint
+compute         allq all reduce sum c_q
+variable        etot equal pe+ke+c_alleint # total energy of the system
+thermo          100
+thermo_style    custom step ke pe v_etot c_alleint dt time
+thermo_modify   lost warn
+
+####################################################################################################
+# RUN SIMULATION
+####################################################################################################
+
+
+
+velocity  all set 0 0 0 units box
+
+
+run 50000
+
+unfix  		inflow
+run             25000

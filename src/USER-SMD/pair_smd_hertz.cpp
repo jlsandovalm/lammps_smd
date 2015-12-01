@@ -141,6 +141,8 @@ void PairHertz::compute(int eflag, int vflag) {
 
 			if (rsq < rcutSq) {
 
+
+
 				/*
 				 * self contact option:
 				 * if pair of particles was initially close enough to interact via a bulk continuum mechanism (e.g. SPH), exclude pair from contact forces.
@@ -162,7 +164,7 @@ void PairHertz::compute(int eflag, int vflag) {
 				}
 
 				r = sqrt(rsq);
-				//printf("hertz interaction, r=%f, cut=%f, h=%f\n", r, rcut, sqrt(rSq0));
+				printf("hertz interaction, r=%f, cut=%f, h=%f, ri=%f, rj=%f, scale=%f\n", r, rcut, sqrt(rSq0), ri, rj, scale);
 
 				// Hertzian short-range forces
 				delta = rcut - r; // overlap distance
