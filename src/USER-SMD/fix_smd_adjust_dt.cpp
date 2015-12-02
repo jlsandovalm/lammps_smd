@@ -140,6 +140,12 @@ void FixSMDTlsphDtReset::end_of_step() {
 		dtmin = MIN(dtmin, *dt_PERI_IPMB);
 	}
 
+	if (dtmin > 1.0e18) {
+		printf("cannot set time step, aborting\n");
+		update->atime = t_elapsed;
+		return;
+	}
+
 	double **f = atom->f;
 	double *rmass = atom->rmass;
 	double *radius = atom->radius;

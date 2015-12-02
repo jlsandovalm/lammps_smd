@@ -481,7 +481,6 @@ void PairSmdMpm::ComputeGridForces() {
 	double *rmass = atom->rmass;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
-	if (update->ntimes)
 	int i, itype;
 	int ix, iy, iz, jx, jy, jz;
 	double px_shifted_scaled, py_shifted_scaled, pz_shifted_scaled;

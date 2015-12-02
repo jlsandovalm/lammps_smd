@@ -164,7 +164,7 @@ void PairHertz::compute(int eflag, int vflag) {
 				}
 
 				r = sqrt(rsq);
-				printf("hertz interaction, r=%f, cut=%f, h=%f, ri=%f, rj=%f, scale=%f\n", r, rcut, sqrt(rSq0), ri, rj, scale);
+				//printf("hertz interaction, r=%f, cut=%f, h=%f, ri=%f, rj=%f, scale=%f\n", r, rcut, sqrt(rSq0), ri, rj, scale);
 
 				// Hertzian short-range forces
 				delta = rcut - r; // overlap distance

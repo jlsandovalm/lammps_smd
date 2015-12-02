@@ -41,6 +41,7 @@
 #include "error.h"
 #include "pair.h"
 #include "domain.h"
+#include "region.h"
 #include <Eigen/Eigen>
 
 using namespace Eigen;
@@ -61,6 +62,7 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 	adjust_radius_flag = false;
 	vlimit = -1.0;
 	flip_contribution = 0.99;
+	region_flag = 0;
 	int iarg = 3;
 
 	if (comm->me == 0) {
@@ -94,6 +96,21 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 			if (comm->me == 0) {
 				printf("... will use %3.2f FLIP and %3.2f PIC update for velocities\n", flip_contribution, 1.0 - flip_contribution);
 			}
+
+		} else if (strcmp(arg[iarg], "exclude_region") == 0) {
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected string following exclude_region");
+			}
+			nregion = domain->find_region(arg[iarg]);
+			if (nregion == -1)
+				error->all(FLERR, "exclude_region region ID does not exist");
+			int n = strlen(arg[iarg]) + 1;
+			idregion = new char[n];
+			strcpy(idregion, arg[iarg]);
+			domain->regions[nregion]->init();
+			domain->regions[nregion]->prematch();
+			region_flag = 1;
 		} else {
 			char msg[128];
 			sprintf(msg, "Illegal keyword for smd/integrate_mpm: %s\n", arg[iarg]);
@@ -153,9 +170,9 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 		if (mask[i] & groupbit) {
 
 			//if (mol[i] != 1000) {
-				x[i][0] += dtv * v[i][0];
-				x[i][1] += dtv * v[i][1];
-				x[i][2] += dtv * v[i][2];
+			x[i][0] += dtv * v[i][0];
+			x[i][1] += dtv * v[i][1];
+			x[i][2] += dtv * v[i][2];
 			//}
 
 		}
@@ -167,6 +184,7 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 
 void FixSMDIntegrateMpm::final_integrate() {
 
+	double **x = atom->x;
 	double **v = atom->v;
 	double **vest = atom->vest;
 	double *e = atom->e;
@@ -219,17 +237,33 @@ void FixSMDIntegrateMpm::final_integrate() {
 			ovy = v[i][1];
 			ovz = v[i][2];
 
-			// mixed FLIP-PIC
-			v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
-					+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
-			v[i][1] = (1. - flip_contribution) * particleVelocities[i](1)
-					+ flip_contribution * (v[i][1] + dtv * particleAccelerations[i](1));
-			v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
-					+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
+			if (region_flag == 0) {
+				// mixed FLIP-PIC
+				v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
+						+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
+				v[i][1] = (1. - flip_contribution) * particleVelocities[i](1)
+						+ flip_contribution * (v[i][1] + dtv * particleAccelerations[i](1));
+				v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
+						+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 
-			vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
-			vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
-			vest[i][2] = v[i][2] + dtf * particleAccelerations[i](2);
+				vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
+				vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
+				vest[i][2] = v[i][2] + dtf * particleAccelerations[i](2);
+			} else {
+				if (!domain->regions[nregion]->match(x[i][0], x[i][1], x[i][2])) {
+					// mixed FLIP-PIC
+					v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
+							+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
+					v[i][1] = (1. - flip_contribution) * particleVelocities[i](1)
+							+ flip_contribution * (v[i][1] + dtv * particleAccelerations[i](1));
+					v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
+							+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
+
+					vest[i][0] = v[i][0] + dtf * particleAccelerations[i](0);
+					vest[i][1] = v[i][1] + dtf * particleAccelerations[i](1);
+					vest[i][2] = v[i][2] + dtf * particleAccelerations[i](2);
+				}
+			}
 
 			e[i] += dtv * de[i];
 

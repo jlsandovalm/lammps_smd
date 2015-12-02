@@ -200,6 +200,7 @@ void FixSmdOutflow::pre_exchange() {
 		if (mark[i]) {
 			avec->copy(atom->nlocal - 1, i, 1);
 			atom->nlocal--;
+			ndel++;
 		}
 	}
 

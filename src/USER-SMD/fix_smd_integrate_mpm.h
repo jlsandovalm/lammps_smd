@@ -47,6 +47,10 @@ class FixSMDIntegrateMpm : public Fix {
 
  private:
   class NeighList *list;
+
+  int nregion, region_flag;
+  char *idregion;
+
  protected:
   double dtv,dtf, vlimit, vlimitsq;;
   int mass_require;

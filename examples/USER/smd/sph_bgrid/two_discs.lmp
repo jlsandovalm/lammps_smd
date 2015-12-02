@@ -25,11 +25,11 @@ neigh_modify    every 1 delay 0 check no
 comm_modify     vel yes
 newton          off
 
-region          box block 0 1 0 1 -0.01 0.01 units box
+region          box block 0 1 0 1 -0.001 0.001 units box
 create_box      2 box
 region          disc1 sphere 0.15 0.15 0 0.14 units box
 region          disc2 sphere 0.45  0.45  0 0.14 units box
-variable        l0 equal 0.14/6
+variable        l0 equal 0.01
 lattice         sq ${l0}
 create_atoms    1 region disc1
 create_atoms    2 region disc2
@@ -38,7 +38,7 @@ group           disc2 region disc2
 
 variable        cr equal 2*${l0}
 variable        vol_one equal ${l0}^2
-variable        mpm_cellsize equal 2*${l0}
+variable        mpm_cellsize equal ${l0}
 set             group all volume ${vol_one}
 set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
@@ -74,9 +74,9 @@ variable        amz equal angmom(all,z) # angular momentum
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 #timestep        0
 fix             dtfix all smd/adjust_dt 0.5
-fix             integration_fix all smd/integrate_mpm FLIP 0# actual integration for equations of motion
+fix             integration_fix all smd/integrate_mpm FLIP 0.99 # actual integration for equations of motion
 
-variable        dumpFreq equal 1
+variable        dumpFreq equal 100
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
                 fx fy fz vx vy vz c_eint &
                 c_contact_radius c_nn mol c_rho c_S[1] c_S[2] c_S[4] radius &
@@ -84,8 +84,8 @@ dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
 
 dump_modify     dump_id first yes
 
-thermo          1
-thermo_style    custom step ke pe v_etot c_alleint dt v_amz
+thermo          100
+thermo_style    custom step ke pe v_etot c_alleint dt v_amz f_dtfix
 fix extra all print 1 "${ekin} ${epot} ${eint} ${etot}" file energy.dat screen no
 
 velocity        disc1 set 0.0707 0.0707 0 units box
