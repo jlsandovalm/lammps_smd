@@ -82,7 +82,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	heat_gradient = NULL;
 	particleHeat = particleHeatRate = NULL;
 
-	comm_forward = 20; // this pair style communicates 8 doubles to ghost atoms
+	comm_forward = 10; // this pair style communicates 8 doubles to ghost atoms
 
 	Bp_exists = false;
 	APIC = false;
@@ -845,7 +845,7 @@ void PairSmdMpm::USF() {
 
 //ApplyVelocityBC();
 
-//comm->forward_comm_pair(this);
+	comm->forward_comm_pair(this);
 	ComputeGridForces();
 	UpdateGridVelocities();
 
@@ -1721,7 +1721,6 @@ double PairSmdMpm::memory_usage() {
 
 int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, int *pbc) {
 	double *vfrac = atom->vfrac;
-	double **smd_data_9 = atom->smd_data_9;
 	double **f = atom->f;
 	int i, j, m;
 
@@ -1730,7 +1729,6 @@ int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, i
 	for (i = 0; i < n; i++) {
 		j = list[i];
 		buf[m++] = vfrac[j];
-		buf[m++] = c0[j]; //2
 
 		buf[m++] = stressTensor[j](0, 0); // pack symmetric stress tensor
 		buf[m++] = stressTensor[j](1, 1);
@@ -1738,16 +1736,6 @@ int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, i
 		buf[m++] = stressTensor[j](0, 1);
 		buf[m++] = stressTensor[j](0, 2);
 		buf[m++] = stressTensor[j](1, 2); // 2 + 6 = 8
-
-		buf[m++] = smd_data_9[j][0];
-		buf[m++] = smd_data_9[j][1];
-		buf[m++] = smd_data_9[j][2];
-		buf[m++] = smd_data_9[j][3];
-		buf[m++] = smd_data_9[j][4];
-		buf[m++] = smd_data_9[j][5];
-		buf[m++] = smd_data_9[j][6];
-		buf[m++] = smd_data_9[j][7];
-		buf[m++] = smd_data_9[j][8];
 
 		buf[m++] = f[j][0];
 		buf[m++] = f[j][1];
@@ -1761,7 +1749,6 @@ int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, i
 
 void PairSmdMpm::unpack_forward_comm(int n, int first, double *buf) {
 	double *vfrac = atom->vfrac;
-	double **smd_data_9 = atom->smd_data_9;
 	double **f = atom->f;
 	int i, m, last;
 
@@ -1769,7 +1756,6 @@ void PairSmdMpm::unpack_forward_comm(int n, int first, double *buf) {
 	last = first + n;
 	for (i = first; i < last; i++) {
 		vfrac[i] = buf[m++];
-		c0[i] = buf[m++]; // 2
 
 		stressTensor[i](0, 0) = buf[m++];
 		stressTensor[i](1, 1) = buf[m++];
@@ -1780,16 +1766,6 @@ void PairSmdMpm::unpack_forward_comm(int n, int first, double *buf) {
 		stressTensor[i](1, 0) = stressTensor[i](0, 1);
 		stressTensor[i](2, 0) = stressTensor[i](0, 2);
 		stressTensor[i](2, 1) = stressTensor[i](1, 2);
-
-		smd_data_9[i][0] = buf[m++];
-		smd_data_9[i][1] = buf[m++];
-		smd_data_9[i][2] = buf[m++];
-		smd_data_9[i][3] = buf[m++];
-		smd_data_9[i][4] = buf[m++];
-		smd_data_9[i][5] = buf[m++];
-		smd_data_9[i][6] = buf[m++];
-		smd_data_9[i][7] = buf[m++];
-		smd_data_9[i][8] = buf[m++];
 
 		f[i][0] = buf[m++];
 		f[i][1] = buf[m++];
