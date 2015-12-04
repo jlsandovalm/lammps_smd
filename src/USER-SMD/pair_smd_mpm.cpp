@@ -62,6 +62,7 @@ using namespace Eigen;
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
 #define GRID_OFFSET 2
+#define FACTOR 1
 
 PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 		Pair(lmp) {
@@ -461,6 +462,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 									g(2) = wfdz * wfx * wfy;
 
 									velocity_gradient += gridnodes[jx][jy][jz].vest * g.transpose();
+									//velocity_gradient += gridnodes[jx][jy][jz].v * g.transpose();
 									heat_gradient[i] += gridnodes[jx][jy][jz].heat * g; // units: energy / distance
 								}
 							}
@@ -553,13 +555,14 @@ void PairSmdMpm::UpdateGridVelocities() {
 
 	int ix, iy, iz;
 	double dtm;
+	double dt = FACTOR * update->dt;
 
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
 				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
 					if (gridnodes[ix][iy][iz].isVelocityBC == false) {
-						dtm = update->dt / gridnodes[ix][iy][iz].mass;
+						dtm = dt / gridnodes[ix][iy][iz].mass;
 						gridnodes[ix][iy][iz].v += dtm * gridnodes[ix][iy][iz].f;
 						gridnodes[ix][iy][iz].heat += dtm * gridnodes[ix][iy][iz].dheat_dt;
 					} else {
@@ -830,28 +833,70 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 		particleHeatRate = new double[nmax];
 	}
 
+	USF();
+}
+
+void PairSmdMpm::USF() {
 	CreateGrid();
-
-	if (APIC) {
-		comm->forward_comm_pair(this); // need to do one forward comm here to have APIC Bp on ghosts
-	}
 	PointsToGrid();
-
 	ComputeVelocityGradient(); // using current velocities
-	//SolveHeatEquation();
-
+	GetStress();
 	AssembleStressTensor();
 
-	ApplyVelocityBC();
+//ApplyVelocityBC();
 
-	comm->forward_comm_pair(this);
+//comm->forward_comm_pair(this);
 	ComputeGridForces();
 	UpdateGridVelocities();
 
 	GridToPoints();
 
 	DestroyGrid();
+}
 
+void PairSmdMpm::USL() {
+	CreateGrid();
+	PointsToGrid();
+	GetStress();
+	AssembleStressTensor();
+	ComputeGridForces();
+	UpdateGridVelocities();
+	GridToPoints();
+	ComputeVelocityGradient();
+	DestroyGrid();
+}
+
+void PairSmdMpm::MUSL() {
+	//MUSL
+
+	CreateGrid();
+	PointsToGrid();
+
+	// first 1/2 step update of stress
+	ComputeVelocityGradient();
+	GetStress();
+	AssembleStressTensor();
+	ComputeGridForces();
+	UpdateGridVelocities();
+
+	// clear grid forces
+	int ix, iy, iz;
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				gridnodes[ix][iy][iz].f.setZero();
+			}
+		}
+	}
+
+	// second 1/2 step update of stress
+	ComputeVelocityGradient();
+	AssembleStressTensor();
+	ComputeGridForces();
+	UpdateGridVelocities();
+
+	GridToPoints();
+	DestroyGrid();
 }
 
 void PairSmdMpm::UpdateStress() {
@@ -866,36 +911,26 @@ void PairSmdMpm::UpdateStress() {
 	eye.setIdentity();
 
 	dtCFL = BIG;
-	double FACTOR = 1.0;
 
 	for (i = 0; i < nlocal; i++) {
 		itype = type[i];
 		if (setflag[itype][itype] == 1) {
 
-			oldStress(0, 0) = tlsph_stress[i][0];
-			oldStress(0, 1) = tlsph_stress[i][1];
-			oldStress(0, 2) = tlsph_stress[i][2];
-			oldStress(1, 1) = tlsph_stress[i][3];
-			oldStress(1, 2) = tlsph_stress[i][4];
-			oldStress(2, 2) = tlsph_stress[i][5];
-			oldStress(1, 0) = oldStress(0, 1);
-			oldStress(2, 0) = oldStress(0, 2);
-			oldStress(2, 1) = oldStress(1, 2);
-
 			D = 0.5 * (L[i] + L[i].transpose());
 			d_dev = Deviator(D);
 			d_iso = D.trace();
-			vfrac[i] += FACTOR * update->dt * vfrac[i] * d_iso; // update the volume
+			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
 
 			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
-			newStress = oldStress + FACTOR * update->dt * stressRate;
+			stressTensor[i] += update->dt * stressRate;
 
-			tlsph_stress[i][0] = newStress(0, 0);
-			tlsph_stress[i][1] = newStress(0, 1);
-			tlsph_stress[i][2] = newStress(0, 2);
-			tlsph_stress[i][3] = newStress(1, 1);
-			tlsph_stress[i][4] = newStress(1, 2);
-			tlsph_stress[i][5] = newStress(2, 2);
+			// store updated stress
+			tlsph_stress[i][0] = stressTensor[i](0, 0);
+			tlsph_stress[i][1] = stressTensor[i](0, 1);
+			tlsph_stress[i][2] = stressTensor[i](0, 2);
+			tlsph_stress[i][3] = stressTensor[i](1, 1);
+			tlsph_stress[i][4] = stressTensor[i](1, 2);
+			tlsph_stress[i][5] = stressTensor[i](2, 2);
 
 			c0[i] = Lookup[REFERENCE_SOUNDSPEED][itype];
 
@@ -909,7 +944,7 @@ void PairSmdMpm::UpdateStress() {
 			 * potential energy
 			 */
 
-			de[i] += 0.5 * vfrac[i] * (newStress.cwiseProduct(D)).sum();
+			de[i] += vfrac[i] * (stressTensor[i].cwiseProduct(D)).sum();
 		}
 	}
 
@@ -958,7 +993,7 @@ void PairSmdMpm::AssembleStressTensor() {
 	Matrix3d eye, stressRate, StressRateDevJaumann;
 	Matrix3d sigmaInitial_dev, d_dev, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
 	double plastic_strain_increment, yieldStress;
-	double dt = update->dt;
+	double dt = FACTOR * update->dt;
 	double vol, newPressure;
 	double G_eff = 0.0; // effective shear modulus
 	double K_eff; // effective bulk modulus
@@ -974,14 +1009,11 @@ void PairSmdMpm::AssembleStressTensor() {
 		if (setflag[itype][itype] == 1) {
 			newStressDeviator.setZero();
 			newPressure = 0.0;
-			stressTensor[i].setZero();
 
 			effectiveViscosity = 0.0;
 			K_eff = 0.0;
 			G_eff = 0.0;
 			D = 0.5 * (L[i] + L[i].transpose());
-			//E = 0.5 * (F[i].transpose() * F[i] - eye);
-			//E /= update->dt;
 
 			d_iso = D.trace();
 			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
@@ -1021,18 +1053,10 @@ void PairSmdMpm::AssembleStressTensor() {
 
 			if (strength[itype] != NONE) {
 				/*
-				 * initial stress state: given by the unrotateted Cauchy stress.
-				 * Assemble Eigen 3d matrix from stored stress state
+				 * initial stress state has already been assigned before in function GetStress()
+				 * we need the deviator here.
 				 */
-				oldStressDeviator(0, 0) = tlsph_stress[i][0];
-				oldStressDeviator(0, 1) = tlsph_stress[i][1];
-				oldStressDeviator(0, 2) = tlsph_stress[i][2];
-				oldStressDeviator(1, 1) = tlsph_stress[i][3];
-				oldStressDeviator(1, 2) = tlsph_stress[i][4];
-				oldStressDeviator(2, 2) = tlsph_stress[i][5];
-				oldStressDeviator(1, 0) = oldStressDeviator(0, 1);
-				oldStressDeviator(2, 0) = oldStressDeviator(0, 2);
-				oldStressDeviator(2, 1) = oldStressDeviator(1, 2);
+				oldStressDeviator = Deviator(stressTensor[i]);
 
 				W = 0.5 * (L[i] - L[i].transpose()); // spin tensor:: need this for Jaumann rate
 				d_dev = Deviator(D);
@@ -1073,13 +1097,6 @@ void PairSmdMpm::AssembleStressTensor() {
 				StressRateDevJaumann = stressRateDev; // - W * oldStressDeviator + oldStressDeviator * W;
 				newStressDeviator = oldStressDeviator + dt * StressRateDevJaumann;
 
-				tlsph_stress[i][0] = newStressDeviator(0, 0);
-				tlsph_stress[i][1] = newStressDeviator(0, 1);
-				tlsph_stress[i][2] = newStressDeviator(0, 2);
-				tlsph_stress[i][3] = newStressDeviator(1, 1);
-				tlsph_stress[i][4] = newStressDeviator(1, 2);
-				tlsph_stress[i][5] = newStressDeviator(2, 2);
-
 				// estimate effective shear modulus for time step stability
 				deltaStressDev = oldStressDeviator - newStressDeviator;
 				G_eff = effective_shear_modulus(d_dev, deltaStressDev, dt, itype);
@@ -1101,10 +1118,20 @@ void PairSmdMpm::AssembleStressTensor() {
 			} // end if (viscosity[itype] != NONE)
 
 			/*
-			 * assemble stress Tensor from pressure and deviatoric parts
+			 * assemble updated stress Tensor from pressure and deviatoric parts
 			 */
-
 			stressTensor[i] = -newPressure * eye + newStressDeviator;
+			//cout << "this is the new stress deviator: " << newStressDeviator << endl;
+
+			/*
+			 * store new stress Tensor
+			 */
+			tlsph_stress[i][0] = stressTensor[i](0, 0);
+			tlsph_stress[i][1] = stressTensor[i](0, 1);
+			tlsph_stress[i][2] = stressTensor[i](0, 2);
+			tlsph_stress[i][3] = stressTensor[i](1, 1);
+			tlsph_stress[i][4] = stressTensor[i](1, 2);
+			tlsph_stress[i][5] = stressTensor[i](2, 2);
 
 			/*
 			 * stable timestep based on speed-of-sound
@@ -1125,15 +1152,15 @@ void PairSmdMpm::AssembleStressTensor() {
 			 * elastic energy rate
 			 */
 
-			de[i] += vol * (stressTensor[i].cwiseProduct(D)).sum();
+			de[i] += FACTOR * vol * (stressTensor[i].cwiseProduct(D)).sum();
 
 		}
 		// end if (setflag[itype][itype] == 1)
 	} // end loop over nlocal
 
-	// fallback if no atoms are present:
+// fallback if no atoms are present:
 	int check_flag = 0;
-	for (itype = 1; itype < atom->ntypes; itype++) {
+	for (itype = 1; itype <= atom->ntypes; itype++) {
 		if (setflag[itype][itype] == 1) {
 			p_wave_speed = sqrt(Lookup[BULK_MODULUS][itype] / Lookup[REFERENCE_DENSITY][itype]);
 			dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
@@ -1663,9 +1690,9 @@ double PairSmdMpm::init_one(int i, int j) {
 
 void PairSmdMpm::init_style() {
 // request a granular neighbor list
-	//int irequest = neighbor->request(this);
-	//neighbor->requests[irequest]->half = 0;
-	//neighbor->requests[irequest]->gran = 1;
+//int irequest = neighbor->request(this);
+//neighbor->requests[irequest]->half = 0;
+//neighbor->requests[irequest]->gran = 1;
 }
 
 /* ----------------------------------------------------------------------

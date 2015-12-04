@@ -70,7 +70,7 @@ set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho_water}
 variable        skin equal ${h} # Verlet list range
 neighbor        ${skin} bin
-variable        mpm_cellsize equal 2*${l0}
+variable        mpm_cellsize equal ${l0}
 
 
 
@@ -92,7 +92,7 @@ pair_style      hybrid/overlay smd/tri_surface 1.0 &
                 smd/mpm ${mpm_cellsize}
 pair_coeff      1 1 smd/mpm   *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
-                              *VISCOSITY_NEWTON 0.0 &
+                              *VISCOSITY_NEWTON 1.0e-4 &
 	                      *END
 pair_coeff      2 2 none
 pair_coeff      1 2 smd/tri_surface ${contact_stiffness}
@@ -101,7 +101,7 @@ pair_coeff      1 2 smd/tri_surface ${contact_stiffness}
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water water smd/integrate_mpm FLIP 0.95
+fix             integration_fix_water water smd/integrate_mpm FLIP 1
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT

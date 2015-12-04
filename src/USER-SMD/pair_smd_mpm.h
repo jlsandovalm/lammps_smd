@@ -72,6 +72,9 @@ public:
 	void GetStress();
 	void ApplyVelocityBC();
 	void SolveHeatEquation();
+	void MUSL();
+	void USF();
+	void USL();
 
 protected:
 

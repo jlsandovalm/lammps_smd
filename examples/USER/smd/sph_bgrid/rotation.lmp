@@ -42,7 +42,7 @@ comm_modify     vel yes #cutoff ${comm_cutoff}
 
 
 # this is an updated-Lagrangian pair style with Tait EOS and physical viscosity.
-pair_style      smd/wlsmpm    ${mpm_cellsize}
+pair_style      smd/mpm    ${mpm_cellsize}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
@@ -64,7 +64,7 @@ variable        amz equal angmom(all,z) # angular momentum
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 fix             dtfix all smd/adjust_dt 0.5
 #fix             gfix  all gravity 0.01 vector 0 1 0
-fix             integration_fix all smd/integrate_mpm FLIP 0# actual integration for equations of motion
+fix             integration_fix all smd/integrate_mpm FLIP 1# actual integration for equations of motion
 
 variable        dumpFreq equal 10
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &

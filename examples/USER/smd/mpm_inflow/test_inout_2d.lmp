@@ -56,6 +56,7 @@ region          outflow block 78.1 EDGE EDGE EDGE EDGE EDGE units box
 group inflow 	type 1
 
 create_atoms    2 single 20 6.5 0
+create_atoms    1 single 10 8.5 0
 
 ####################################################################################################
 # DISCRETIZATION PARAMETERS
@@ -63,12 +64,12 @@ create_atoms    2 single 20 6.5 0
 variable        dtCFL equal 0.1*sqrt(${K}/${rho})
 variable        h equal ${l0} # SPH kernel diameter
 variable        vol_one equal ${l0}^3 # initial particle volume for 2d simulation
-variable        contact_radius equal 3
-set             group all diameter 3
+variable        contact_radius equal 2
+set             group all diameter 4
 set             group all smd_contact_radius ${contact_radius}
 set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho}
-set             group all mol 1000
+#set             group all mol 1000
 
 variable        skin equal 2.5 #0.1*${h} # Verlet list range
 neighbor        ${skin} bin
@@ -102,14 +103,14 @@ pair_coeff      1 1 smd/mpm *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
 			      *HEAT_CONDUCTION 1.0e4 &
 	                      *END
-pair_coeff      1 2 smd/hertz 10
+pair_coeff      1 2 smd/hertz ${K}
 pair_coeff      2 2 none
 
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
-fix             dtfix all smd/adjust_dt 0.9 # dynamically adjust time increment every step
-fix             integration_fix_water all smd/integrate_mpm FLIP 0.99 exclude_region constvel
+fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+fix             integration_fix_water all smd/integrate_mpm FLIP 1 exclude_region constvel
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -145,11 +146,11 @@ thermo_modify   lost warn
 
 
 
-velocity  all set 0 0 0 units box
+velocity  all set 0.05 0 0 units box
 #fix 2 all balance 1000 1.1 rcb 
-fix 2 all balance 1000 1.05 shift x 10 1.05
+#fix 2 all balance 1000 1.05 shift x 10 1.05
 
-run 30000
+run 90000
 
 #unfix  		inflow
 #run             25000

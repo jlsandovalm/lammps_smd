@@ -74,7 +74,7 @@ variable        amz equal angmom(all,z) # angular momentum
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 #timestep        0
 fix             dtfix all smd/adjust_dt 0.5
-fix             integration_fix all smd/integrate_mpm FLIP 0.99 # actual integration for equations of motion
+fix             integration_fix all smd/integrate_mpm FLIP 1 # actual integration for equations of motion
 
 variable        dumpFreq equal 100
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
