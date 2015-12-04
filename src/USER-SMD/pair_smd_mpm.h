@@ -152,6 +152,8 @@ private:
 	int min_ix, min_iy, min_iz;
 	int max_ix, max_iy, max_iz;
 
+	double time_PointstoGrid, time_Gradients, time_MaterialModel, time_GridForces, time_UpdateGrid, time_GridToPoints;
+
 };
 
 }

@@ -25,7 +25,7 @@ using namespace LAMMPS_NS;
 
 int main(int argc, char **argv)
 {
-  ProfilerStart("/tmp/gperf_dump.txt");
+  //ProfilerStart("/tmp/gperf_dump.txt");
 
   MPI_Init(&argc,&argv);
 
@@ -37,6 +37,6 @@ int main(int argc, char **argv)
   MPI_Barrier(MPI_COMM_WORLD);
   MPI_Finalize();
 
-  ProfilerFlush();
-  ProfilerStop();
+  //ProfilerFlush();
+  //ProfilerStop();
 }

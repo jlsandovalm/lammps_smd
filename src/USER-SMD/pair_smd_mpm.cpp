@@ -45,6 +45,7 @@
 #include "smd_material_models.h"
 #include "smd_math.h"
 #include "smd_kernels.h"
+#include "get_cpu_time.h"
 
 using namespace SMD_Kernels;
 using namespace std;
@@ -86,11 +87,27 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 
 	Bp_exists = false;
 	APIC = false;
+
+	time_PointstoGrid = time_Gradients = time_MaterialModel = time_GridForces = time_UpdateGrid = time_GridToPoints = 0.0;
 }
 
 /* ---------------------------------------------------------------------- */
 
 PairSmdMpm::~PairSmdMpm() {
+
+	double time_sum = time_PointstoGrid + time_Gradients + time_MaterialModel + time_GridForces + time_UpdateGrid
+			+ time_GridToPoints;
+	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "points to grid", time_PointstoGrid,
+			100 * time_PointstoGrid / time_sum);
+	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "gradients", time_Gradients, 100 * time_Gradients / time_sum);
+	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "material model", time_MaterialModel,
+			100 * time_MaterialModel / time_sum);
+	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "gradients", time_GridForces, 100 * time_GridForces / time_sum);
+	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid update", time_UpdateGrid,
+			100 * time_UpdateGrid / time_sum);
+	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid to points", time_GridToPoints,
+			100 * time_GridToPoints / time_sum);
+
 	if (allocated) {
 		//printf("... deallocating\n");
 		memory->destroy(Q1);
@@ -189,7 +206,7 @@ void PairSmdMpm::PointsToGrid() {
 	int i, itype;
 	int ix, iy, iz, jx, jy, jz;
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wf, wfx, wfy;
-	double delz_scaled, delz_scaled_abs, wfz;
+	double delz_scaled, delz_scaled_abs, wfz, particle_mass, particle_heat;
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	Vector3d vel_APIC, vel_particle, vel_particle_est, dx;
 	Matrix3d eye, Dp, Dp_inv, Cp, Bp;
@@ -231,8 +248,12 @@ void PairSmdMpm::PointsToGrid() {
 			iy = icellsize * py_shifted;
 			iz = icellsize * pz_shifted;
 
+			particle_mass = rmass[i]; // pre-compute all possible quantities
 			vel_particle << v[i][0], v[i][1], v[i][2];
 			vel_particle_est << vest[i][0], vest[i][1], vest[i][2];
+			vel_particle *= particle_mass;
+			vel_particle_est *= particle_mass;
+			particle_heat = particle_mass * heat[i];
 
 			if (APIC) {
 				if (Bp_exists) {
@@ -297,17 +318,16 @@ void PairSmdMpm::PointsToGrid() {
 
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
-									if (APIC) {
-										vel_APIC = Cp * dx + vel_particle; // this is the APIC corrected velocity
-										gridnodes[jx][jy][jz].v += wf * rmass[i] * vel_APIC;
-									} else {
-										gridnodes[jx][jy][jz].v += wf * rmass[i] * vel_particle;
-									}
+									//if (APIC) {
+									//	vel_APIC = Cp * dx + vel_particle; // this is the APIC corrected velocity
+									//	gridnodes[jx][jy][jz].v += wf * rmass[i] * vel_APIC;
+									//} else {
+									gridnodes[jx][jy][jz].v += wf * vel_particle;
+									//}
 
-									gridnodes[jx][jy][jz].vest += wf * rmass[i] * vel_particle_est;
-
-									gridnodes[jx][jy][jz].mass += wf * rmass[i];
-									gridnodes[jx][jy][jz].heat += wf * rmass[i] * heat[i];
+									gridnodes[jx][jy][jz].vest += wf * vel_particle_est;
+									gridnodes[jx][jy][jz].mass += wf * particle_mass;
+									gridnodes[jx][jy][jz].heat += wf * particle_heat;
 								}
 							}
 						}
@@ -420,7 +440,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 
 	int ix, iy, iz, jx, jy, jz;
 	double px_shifted_scaled, py_shifted_scaled, pz_shifted_scaled; // shifted coords of particles
-	Vector3d g, vel_grid;
+	Vector3d g, vel_grid, particle_heat_gradient;
 	Matrix3d velocity_gradient;
 	double delx_scaled, dely_scaled, wfx, wfy, wf, wfdx, wfdy;
 	double delz_scaled, wfz, wfdz;
@@ -430,7 +450,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 		itype = type[i];
 		if (setflag[itype][itype]) {
 
-			heat_gradient[i].setZero();
+			particle_heat_gradient.setZero();
 			velocity_gradient.setZero();
 			px_shifted_scaled = x[i][0] * icellsize - min_ix + GRID_OFFSET; // these are the particle's coords in units of the underlying grid,
 			py_shifted_scaled = x[i][1] * icellsize - min_iy + GRID_OFFSET; // shifted in space to align with the grid
@@ -462,8 +482,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 									g(2) = wfdz * wfx * wfy;
 
 									velocity_gradient += gridnodes[jx][jy][jz].vest * g.transpose();
-									//velocity_gradient += gridnodes[jx][jy][jz].v * g.transpose();
-									heat_gradient[i] += gridnodes[jx][jy][jz].heat * g; // units: energy / distance
+									particle_heat_gradient += gridnodes[jx][jy][jz].heat * g; // units: energy / distance
 								}
 							}
 						}
@@ -471,6 +490,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 				}
 			}
 			L[i] = velocity_gradient;
+			heat_gradient[i] = particle_heat_gradient;
 		} // end if (setflag[itype][itype])
 	}
 }
@@ -508,20 +528,20 @@ void PairSmdMpm::ComputeGridForces() {
 			scaled_temperature_gradient = -vfrac[i] * heat_conduction_coeff[itype] * heat_gradient[i]
 					/ (Lookup[HEAT_CAPACITY][itype] * rmass[i]); // units: volume * Temperature  / distance
 
-			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
-				delx_scaled = px_shifted_scaled - 1.0 * jx;
-				DisneyKernelAndDerivative(icellsize, delx_scaled, wfx, wfdx);
-				if (wfx > 0.0) {
+			for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
+				delz_scaled = pz_shifted_scaled - 1.0 * jz;
+				DisneyKernelAndDerivative(icellsize, delz_scaled, wfz, wfdz);
+				if (wfz > 0.0) {
 
 					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 						dely_scaled = py_shifted_scaled - 1.0 * jy;
 						DisneyKernelAndDerivative(icellsize, dely_scaled, wfy, wfdy);
 						if (wfy > 0.0) {
 
-							for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
-								delz_scaled = pz_shifted_scaled - 1.0 * jz;
-								DisneyKernelAndDerivative(icellsize, delz_scaled, wfz, wfdz);
-								if (wfz > 0.0) {
+							for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
+								delx_scaled = px_shifted_scaled - 1.0 * jx;
+								DisneyKernelAndDerivative(icellsize, delx_scaled, wfx, wfdx);
+								if (wfx > 0.0) {
 
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
@@ -616,13 +636,13 @@ void PairSmdMpm::GridToPoints() {
 			vel_particle << v[i][0], v[i][1], v[i][2];
 			Bp.setZero();
 
-			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
+			for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
-				delx_scaled = px_shifted * icellsize - 1.0 * jx;
-				dx(0) = delx_scaled * cellsize;
-				delx_scaled_abs = fabs(delx_scaled);
-				wfx = DisneyKernel(delx_scaled_abs);
-				if (wfx > 0.0) {
+				delz_scaled = pz_shifted * icellsize - 1.0 * jz;
+				dx(2) = delz_scaled * cellsize;
+				delz_scaled_abs = fabs(delz_scaled);
+				wfz = DisneyKernel(delz_scaled_abs);
+				if (wfz > 0.0) {
 
 					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
@@ -632,28 +652,28 @@ void PairSmdMpm::GridToPoints() {
 						wfy = DisneyKernel(dely_scaled_abs);
 						if (wfy > 0.0) {
 
-							for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
+							for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
-								delz_scaled = pz_shifted * icellsize - 1.0 * jz;
-								dx(2) = delz_scaled * cellsize;
-								delz_scaled_abs = fabs(delz_scaled);
-								wfz = DisneyKernel(delz_scaled_abs);
-								if (wfz > 0.0) {
+								delx_scaled = px_shifted * icellsize - 1.0 * jx;
+								dx(0) = delx_scaled * cellsize;
+								delx_scaled_abs = fabs(delx_scaled);
+								wfx = DisneyKernel(delx_scaled_abs);
+								if (wfx > 0.0) {
 
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 									particleVelocities[i] += wf * gridnodes[jx][jy][jz].v;
 
 									// NEED TO COMPUTE BP_n+1 here using the updated grid velocities
-									if (gridnodes[jx][jy][jz].isVelocityBC == false) {
-										if (APIC) {
-											Bp += wf * gridnodes[jx][jy][jz].v * dx.transpose();
-										}
-									} else {
-										if (APIC) {
-											Bp += wf * vel_particle * dx.transpose();
-										}
-									}
+//									if (gridnodes[jx][jy][jz].isVelocityBC == false) {
+//										if (APIC) {
+//											Bp += wf * gridnodes[jx][jy][jz].v * dx.transpose();
+//										}
+//									} else {
+//										if (APIC) {
+//											Bp += wf * vel_particle * dx.transpose();
+//										}
+//									}
 
 									if (gridnodes[jx][jy][jz].mass > MASS_CUTOFF) {
 										particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f / gridnodes[jx][jy][jz].mass;
@@ -661,19 +681,19 @@ void PairSmdMpm::GridToPoints() {
 										particleHeat[i] += wf * gridnodes[jx][jy][jz].heat;
 									}
 
-									if (wf > 0.0) {
-										if (mol[i] == 1000) {
-											printf("check\n");
-											if ((vel_grid - vel_particle).norm() > 1.0e-6) {
-												cout << "mol = " << mol[i] << ",  grid BC status is "
-														<< gridnodes[jx][jy][jz].isVelocityBC << endl;
-												cout << "vel error " << (vel_grid - vel_particle).norm() << endl;
-												cout << "grid vel is " << vel_grid.transpose() << endl;
-												cout << "particle vel is " << vel_particle.transpose() << endl << endl;
-
-											}
-										}
-									}
+//									if (wf > 0.0) {
+//										if (mol[i] == 1000) {
+//											printf("check\n");
+//											if ((vel_grid - vel_particle).norm() > 1.0e-6) {
+//												cout << "mol = " << mol[i] << ",  grid BC status is "
+//														<< gridnodes[jx][jy][jz].isVelocityBC << endl;
+//												cout << "vel error " << (vel_grid - vel_particle).norm() << endl;
+//												cout << "grid vel is " << vel_grid.transpose() << endl;
+//												cout << "particle vel is " << vel_particle.transpose() << endl << endl;
+//
+//											}
+//										}
+//									}
 
 								}
 							}
@@ -837,19 +857,35 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 }
 
 void PairSmdMpm::USF() {
+
 	CreateGrid();
+
+	time_PointstoGrid -= getCPUTime();
 	PointsToGrid();
+	time_PointstoGrid += getCPUTime();
+
+	time_Gradients -= getCPUTime();
 	ComputeVelocityGradient(); // using current velocities
+	time_Gradients += getCPUTime();
+
+	time_MaterialModel -= getCPUTime();
 	GetStress();
 	AssembleStressTensor();
-
-//ApplyVelocityBC();
-
 	comm->forward_comm_pair(this);
-	ComputeGridForces();
-	UpdateGridVelocities();
+	time_MaterialModel += getCPUTime();
 
+	//ApplyVelocityBC();
+	time_GridForces -= getCPUTime();
+	ComputeGridForces();
+	time_GridForces += getCPUTime();
+
+	time_UpdateGrid -= getCPUTime();
+	UpdateGridVelocities();
+	time_UpdateGrid += getCPUTime();
+
+	time_GridToPoints -= getCPUTime();
 	GridToPoints();
+	time_GridToPoints += getCPUTime();
 
 	DestroyGrid();
 }

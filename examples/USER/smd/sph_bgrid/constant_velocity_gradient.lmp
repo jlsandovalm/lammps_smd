@@ -16,7 +16,7 @@ variable        sigy equal 330.3
 variable        c0 equal sqrt(${K}/${rho})
 
 
-variable        l0 equal 1.00
+variable        l0 equal 0.25
 # ----
 variable        dt equal 0.125*${l0}/${c0} # CFL estimate for the stable timestep
 print           "sound speed is ${c0}, CFL timestep is approximately ${dt}"
@@ -78,7 +78,7 @@ timestep        ${dt} # set an initial estimate for the zero-th timestep
 #fix             gfix  all gravity 0.01 vector 0 1 0
 fix             integration_fix all smd/integrate_mpm FLIP 1# actual integration for equations of motion
 
-variable        dumpFreq equal 1
+variable        dumpFreq equal 100
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
                 fx fy fz vx vy vz c_eint &
                 c_contact_radius c_nn mol c_rho c_S[1] c_S[2] c_S[4] radius &
@@ -86,11 +86,11 @@ dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
 
 dump_modify     dump_id first yes
 
-thermo          1
+thermo          10
 thermo_style    custom step ke pe v_etot c_alleint dt v_amz
 
 # Apply initial velocity conditions.
 #
 velocity        all ramp vx    -1 11 x -1 11 units box
 #velocity        all ramp vy    -1 11 y -1 11 units box
-run  200
+run  100
