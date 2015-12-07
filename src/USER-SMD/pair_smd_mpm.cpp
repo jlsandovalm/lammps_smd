@@ -88,25 +88,42 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	Bp_exists = false;
 	APIC = false;
 
-	time_PointstoGrid = time_Gradients = time_MaterialModel = time_GridForces = time_UpdateGrid = time_GridToPoints = 0.0;
+	timeone_PointstoGrid = timeone_Gradients = timeone_MaterialModel = timeone_GridForces = timeone_UpdateGrid =
+			timeone_GridToPoints = 0.0;
 }
 
 /* ---------------------------------------------------------------------- */
 
 PairSmdMpm::~PairSmdMpm() {
 
+	double time_PointstoGrid, time_Gradients, time_MaterialModel, time_GridForces, time_UpdateGrid, time_GridToPoints;
+
+	MPI_Allreduce(&timeone_PointstoGrid, &time_PointstoGrid, 1, MPI_DOUBLE, MPI_SUM, world);
+	MPI_Allreduce(&timeone_Gradients, &time_Gradients, 1, MPI_DOUBLE, MPI_SUM, world);
+	MPI_Allreduce(&timeone_MaterialModel, &time_MaterialModel, 1, MPI_DOUBLE, MPI_SUM, world);
+	MPI_Allreduce(&timeone_GridForces, &time_GridForces, 1, MPI_DOUBLE, MPI_SUM, world);
+	MPI_Allreduce(&timeone_UpdateGrid, &time_UpdateGrid, 1, MPI_DOUBLE, MPI_SUM, world);
+	MPI_Allreduce(&timeone_GridToPoints, &time_GridToPoints, 1, MPI_DOUBLE, MPI_SUM, world);
+
 	double time_sum = time_PointstoGrid + time_Gradients + time_MaterialModel + time_GridForces + time_UpdateGrid
 			+ time_GridToPoints;
-	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "points to grid", time_PointstoGrid,
-			100 * time_PointstoGrid / time_sum);
-	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "gradients", time_Gradients, 100 * time_Gradients / time_sum);
-	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "material model", time_MaterialModel,
-			100 * time_MaterialModel / time_sum);
-	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "gradients", time_GridForces, 100 * time_GridForces / time_sum);
-	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid update", time_UpdateGrid,
-			100 * time_UpdateGrid / time_sum);
-	printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid to points", time_GridToPoints,
-			100 * time_GridToPoints / time_sum);
+	if (comm->me == 0) {
+		printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
+		printf("... SMD / MPM CPU (NOT WALL CLOCK) TIMING STATISTICS\n\n");
+		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "points to grid", time_PointstoGrid,
+				100 * time_PointstoGrid / time_sum);
+		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "gradients", time_Gradients,
+				100 * time_Gradients / time_sum);
+		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "material model", time_MaterialModel,
+				100 * time_MaterialModel / time_sum);
+		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid forces", time_GridForces,
+				100 * time_GridForces / time_sum);
+		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid update", time_UpdateGrid,
+				100 * time_UpdateGrid / time_sum);
+		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid to points", time_GridToPoints,
+				100 * time_GridToPoints / time_sum);
+		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n\n");
+	}
 
 	if (allocated) {
 		//printf("... deallocating\n");
@@ -506,7 +523,7 @@ void PairSmdMpm::ComputeGridForces() {
 	int i, itype;
 	int ix, iy, iz, jx, jy, jz;
 	double px_shifted_scaled, py_shifted_scaled, pz_shifted_scaled;
-	Vector3d g, force, scaled_temperature_gradient;
+	Vector3d g, force, scaled_temperature_gradient, otherForces;
 	double delx_scaled, dely_scaled, delz_scaled, wfx, wfy, wfz, wf, wfdx, wfdy, wfdz;
 	Matrix3d scaledStress;
 
@@ -527,6 +544,7 @@ void PairSmdMpm::ComputeGridForces() {
 			scaledStress = -vfrac[i] * stressTensor[i];
 			scaled_temperature_gradient = -vfrac[i] * heat_conduction_coeff[itype] * heat_gradient[i]
 					/ (Lookup[HEAT_CAPACITY][itype] * rmass[i]); // units: volume * Temperature  / distance
+			otherForces << f[i][0], f[i][1], f[i][2];
 
 			for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 				delz_scaled = pz_shifted_scaled - 1.0 * jz;
@@ -549,13 +567,11 @@ void PairSmdMpm::ComputeGridForces() {
 									g(1) = wfdy * wfx * wfz;
 									g(2) = wfdz * wfx * wfy;
 
-									force = scaledStress * g; // this is the force from the divergence of the stress field
-
-									force(0) += wf * f[i][0]; // these are body force from other force fields, e.g. contact
-									force(1) += wf * f[i][1];
-									force(2) += wf * f[i][2];
-
-									gridnodes[jx][jy][jz].f += force;
+									/*
+									 * this is the force from the divergence of the stress field plus
+									 *forces from other force fields, e.g. contact
+									 */
+									gridnodes[jx][jy][jz].f += scaledStress * g + wf * otherForces;
 									gridnodes[jx][jy][jz].dheat_dt += scaled_temperature_gradient.dot(g);
 								}
 							}
@@ -617,6 +633,8 @@ void PairSmdMpm::GridToPoints() {
 
 		particleVelocities[i].setZero();
 		particleAccelerations[i].setZero();
+		particleHeat[i] = 0.0;
+		particleHeatRate[i] = 0.0;
 
 		itype = type[i];
 		if (setflag[itype][itype]) {
@@ -629,10 +647,6 @@ void PairSmdMpm::GridToPoints() {
 			iy = icellsize * py_shifted;
 			iz = icellsize * pz_shifted;
 
-			particleVelocities[i].setZero();
-			particleAccelerations[i].setZero();
-			particleHeat[i] = 0.0;
-			particleHeatRate[i] = 0.0;
 			vel_particle << v[i][0], v[i][1], v[i][2];
 			Bp.setZero();
 
@@ -860,32 +874,32 @@ void PairSmdMpm::USF() {
 
 	CreateGrid();
 
-	time_PointstoGrid -= getCPUTime();
+	timeone_PointstoGrid -= getCPUTime();
 	PointsToGrid();
-	time_PointstoGrid += getCPUTime();
+	timeone_PointstoGrid += getCPUTime();
 
-	time_Gradients -= getCPUTime();
+	timeone_Gradients -= getCPUTime();
 	ComputeVelocityGradient(); // using current velocities
-	time_Gradients += getCPUTime();
+	timeone_Gradients += getCPUTime();
 
-	time_MaterialModel -= getCPUTime();
+	timeone_MaterialModel -= getCPUTime();
 	GetStress();
 	AssembleStressTensor();
 	comm->forward_comm_pair(this);
-	time_MaterialModel += getCPUTime();
+	timeone_MaterialModel += getCPUTime();
 
 	//ApplyVelocityBC();
-	time_GridForces -= getCPUTime();
+	timeone_GridForces -= getCPUTime();
 	ComputeGridForces();
-	time_GridForces += getCPUTime();
+	timeone_GridForces += getCPUTime();
 
-	time_UpdateGrid -= getCPUTime();
+	timeone_UpdateGrid -= getCPUTime();
 	UpdateGridVelocities();
-	time_UpdateGrid += getCPUTime();
+	timeone_UpdateGrid += getCPUTime();
 
-	time_GridToPoints -= getCPUTime();
+	timeone_GridToPoints -= getCPUTime();
 	GridToPoints();
-	time_GridToPoints += getCPUTime();
+	timeone_GridToPoints += getCPUTime();
 
 	DestroyGrid();
 }
