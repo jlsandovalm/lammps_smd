@@ -110,7 +110,7 @@ pair_coeff      2 2 none
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water all smd/integrate_mpm FLIP 1 exclude_region constvel
+fix             integration_fix_water all smd/integrate_mpm FLIP 0.999 exclude_region constvel
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -124,7 +124,7 @@ compute         S all smd/ulsph_stress
 compute         D all smd/ulsph_strain_rate
 compute         q all smd/heat
 
-dump            dump_id all custom 100 dump.LAMMPS id type x y z &
+dump            dump_id all custom 500 dump.LAMMPS id type x y z &
                 fx fy fz vx vy vz c_eint c_contact_radius mol &
                 radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_q
 dump_modify     dump_id first yes
@@ -150,7 +150,7 @@ velocity  all set 0.05 0 0 units box
 #fix 2 all balance 1000 1.1 rcb 
 #fix 2 all balance 1000 1.05 shift x 10 1.05
 
-run 30000
+run 300000
 
 #unfix  		inflow
 #run             25000

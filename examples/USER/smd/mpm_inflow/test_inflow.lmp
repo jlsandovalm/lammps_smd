@@ -77,8 +77,8 @@ variable        mpm_cellsize equal 1.0*${l0}
 fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE zlo 0.0 units box
 #fix             walls all wall/reflect zlo 0.0 units box
 fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
-fix 		inflow all smd/inflow rho 1000 radius ${l0} freq 20 region inflow velocity 0.05 direction x
-fix 		inflow2 all smd/inflow rho 1000 radius ${l0} freq 20 region inflow2 velocity -0.05 direction y
+fix 		inflow all smd/inflow type 1 rho 1000 radius ${l0} freq 20 region inflow velocity 0.05 direction x
+fix 		inflow2 all smd/inflow type 1 rho 1000 radius ${l0} freq 20 region inflow2 velocity -0.05 direction y
 
 ####################################################################################################
 # SET TEMPERATURE

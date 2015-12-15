@@ -38,7 +38,7 @@ group           disc2 region disc2
 
 variable        cr equal 2*${l0}
 variable        vol_one equal ${l0}^2
-variable        mpm_cellsize equal ${l0}
+variable        mpm_cellsize equal 1*${l0}
 set             group all volume ${vol_one}
 set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
@@ -74,7 +74,7 @@ variable        amz equal angmom(all,z) # angular momentum
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 #timestep        0
 fix             dtfix all smd/adjust_dt 0.5
-fix             integration_fix all smd/integrate_mpm FLIP 1 # actual integration for equations of motion
+fix             integration_fix all smd/integrate_mpm FLIP 0.999 # actual integration for equations of motion
 
 variable        dumpFreq equal 100
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &

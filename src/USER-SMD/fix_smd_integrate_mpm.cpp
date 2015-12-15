@@ -156,28 +156,32 @@ void FixSMDIntegrateMpm::init() {
 
 void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 
-	double **x = atom->x;
-	double **vest = atom->vest;
-	int *mask = atom->mask;
-	int nlocal = atom->nlocal;
-	tagint *mol = atom->molecule;
 
-	int i;
+	// there is nothing to do here -- everything is handled in final-integrate
+	return;
 
-	if (igroup == atom->firstgroup)
-		nlocal = atom->nfirst;
-
-	for (i = 0; i < nlocal; i++) {
-		if (mask[i] & groupbit) {
-
-			//if (mol[i] != 1000) {
-//			x[i][0] += dtv * vest[i][0];
-//			x[i][1] += dtv * vest[i][1];
-//			x[i][2] += dtv * vest[i][2];
-			//}
-
-		}
-	}
+//	double **x = atom->x;
+//	double **vest = atom->vest;
+//	int *mask = atom->mask;
+//	int nlocal = atom->nlocal;
+//	tagint *mol = atom->molecule;
+//
+//	int i;
+//
+//	if (igroup == atom->firstgroup)
+//		nlocal = atom->nfirst;
+//
+//	for (i = 0; i < nlocal; i++) {
+//		if (mask[i] & groupbit) {
+//
+//			//if (mol[i] != 1000) {
+////			x[i][0] += dtv * vest[i][0];
+////			x[i][1] += dtv * vest[i][1];
+////			x[i][2] += dtv * vest[i][2];
+//			//}
+//
+//		}
+//	}
 
 }
 
@@ -261,9 +265,9 @@ void FixSMDIntegrateMpm::final_integrate() {
 
 					//std::cout << "particle vel in integration is " << particleVelocities[i].transpose() << std::endl;
 
-					vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0); // these are the velocities used for
-					vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1); // computing the deformation gradient
-					vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
+					vest[i][0] = particleVelocities[i](0) + 0.5*dtv * particleAccelerations[i](0); // these are the velocities used for
+					vest[i][1] = particleVelocities[i](1) + 0.5*dtv * particleAccelerations[i](1); // computing the deformation gradient
+					vest[i][2] = particleVelocities[i](2) + 0.5*dtv * particleAccelerations[i](2);
 
 				} else {
 					if (!domain->regions[nregion]->match(x[i][0], x[i][1], x[i][2])) {
