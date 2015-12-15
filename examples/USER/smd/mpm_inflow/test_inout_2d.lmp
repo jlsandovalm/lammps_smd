@@ -150,7 +150,7 @@ velocity  all set 0.05 0 0 units box
 #fix 2 all balance 1000 1.1 rcb 
 #fix 2 all balance 1000 1.05 shift x 10 1.05
 
-run 90000
+run 30000
 
 #unfix  		inflow
 #run             25000

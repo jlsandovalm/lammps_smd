@@ -43,6 +43,7 @@
 #include "domain.h"
 #include "region.h"
 #include <Eigen/Eigen>
+#include <iostream>
 
 using namespace Eigen;
 using namespace LAMMPS_NS;
@@ -190,6 +191,7 @@ void FixSMDIntegrateMpm::final_integrate() {
 	double *e = atom->e;
 	double *heat = atom->heat;
 	double *de = atom->de;
+	tagint *mol = atom->molecule;
 
 	int *mask = atom->mask;
 	int nlocal = atom->nlocal;
@@ -222,35 +224,29 @@ void FixSMDIntegrateMpm::final_integrate() {
 	for (i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
 
-			if (vlimit > 0.0) {
-				vsq = v[i][0] * v[i][0] + v[i][1] * v[i][1] + v[i][2] * v[i][2];
-				if (vsq > vlimitsq) {
-					scale = sqrt(vlimitsq / vsq);
-					v[i][0] *= scale;
-					v[i][1] *= scale;
-					v[i][2] *= scale;
-				}
-			}
+			if (mol[i] == 1000) {
+				// this is zero-acceleration (constant velocity) time integration for boundary particles
+				x[i][0] += dtv * v[i][0];
+				x[i][1] += dtv * v[i][1];
+				x[i][2] += dtv * v[i][2];
 
-			if (region_flag == 0) {
-				// mixed FLIP-PIC
-				v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
-						+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
-				v[i][1] = (1. - flip_contribution) * particleVelocities[i](1)
-						+ flip_contribution * (v[i][1] + dtv * particleAccelerations[i](1));
-				v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
-						+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
-//
-				x[i][0] += dtv * particleVelocities[i](0);
-				x[i][1] += dtv * particleVelocities[i](1);
-				x[i][2] += dtv * particleVelocities[i](2);
-
-				vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0);
-				vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1);
-				vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
+				vest[i][0] = v[i][0];
+				vest[i][1] = v[i][1];
+				vest[i][2] = v[i][2];
 
 			} else {
-				if (!domain->regions[nregion]->match(x[i][0], x[i][1], x[i][2])) {
+
+				if (vlimit > 0.0) {
+					vsq = v[i][0] * v[i][0] + v[i][1] * v[i][1] + v[i][2] * v[i][2];
+					if (vsq > vlimitsq) {
+						scale = sqrt(vlimitsq / vsq);
+						v[i][0] *= scale;
+						v[i][1] *= scale;
+						v[i][2] *= scale;
+					}
+				}
+
+				if (region_flag == 0) {
 					// mixed FLIP-PIC
 					v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
 							+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
@@ -258,23 +254,46 @@ void FixSMDIntegrateMpm::final_integrate() {
 							+ flip_contribution * (v[i][1] + dtv * particleAccelerations[i](1));
 					v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
 							+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
-
+//
 					x[i][0] += dtv * particleVelocities[i](0);
 					x[i][1] += dtv * particleVelocities[i](1);
 					x[i][2] += dtv * particleVelocities[i](2);
 
-					vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0);
-					vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1);
+					//std::cout << "particle vel in integration is " << particleVelocities[i].transpose() << std::endl;
+
+					vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0); // these are the velocities used for
+					vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1); // computing the deformation gradient
 					vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
 
 				} else {
-					x[i][0] += dtv * v[i][0];
-					x[i][1] += dtv * v[i][1];
-					x[i][2] += dtv * v[i][2];
+					if (!domain->regions[nregion]->match(x[i][0], x[i][1], x[i][2])) {
+						// mixed FLIP-PIC
+						v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
+								+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
+						v[i][1] = (1. - flip_contribution) * particleVelocities[i](1)
+								+ flip_contribution * (v[i][1] + dtv * particleAccelerations[i](1));
+						v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
+								+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 
-					vest[i][0] = v[i][0];
-					vest[i][1] = v[i][1];
-					vest[i][2] = v[i][2];
+						x[i][0] += dtv * particleVelocities[i](0);
+						x[i][1] += dtv * particleVelocities[i](1);
+						x[i][2] += dtv * particleVelocities[i](2);
+
+						vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0);
+						vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1);
+						vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
+
+					} else {
+						// this is zero-acceleration (constant velocity) time integration for boundary
+						// for particles in a specified region, used e.g. with fix  smd/inflow
+						x[i][0] += dtv * v[i][0];
+						x[i][1] += dtv * v[i][1];
+						x[i][2] += dtv * v[i][2];
+
+						vest[i][0] = v[i][0];
+						vest[i][1] = v[i][1];
+						vest[i][2] = v[i][2];
+					}
 				}
 			}
 

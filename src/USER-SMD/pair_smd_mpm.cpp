@@ -45,7 +45,7 @@
 #include "smd_material_models.h"
 #include "smd_math.h"
 #include "smd_kernels.h"
-#include "get_cpu_time.h"
+//#include "get_cpu_time.h"
 
 using namespace SMD_Kernels;
 using namespace std;
@@ -59,11 +59,15 @@ using namespace Eigen;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
-#define MASS_CUTOFF 1.0e-8
+#define MASS_CUTOFF 1.0e-16
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
 #define GRID_OFFSET 2
 #define FACTOR 1
+
+enum {
+	COPY_VELOCITIES, COPY_FORCES, COPY_NEW_VELOCITIES
+};
 
 PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 		Pair(lmp) {
@@ -602,14 +606,66 @@ void PairSmdMpm::UpdateGridVelocities() {
 						gridnodes[ix][iy][iz].v += dtm * gridnodes[ix][iy][iz].f;
 						gridnodes[ix][iy][iz].heat += dtm * gridnodes[ix][iy][iz].dheat_dt;
 					} else {
-						//gridnodes[ix][iy][iz].fx = 0.0;
-						//gridnodes[ix][iy][iz].fy = 0.0;
-						//gridnodes[ix][iy][iz].fz = 0.0;
+						// Buzzi 2008 says that momentum on grid boundary nodes needs to be zeroed.
+						/*
+						 * But: wee need the force information.
+						 * Rather than zeroing the force, use BC node force selectively when interpolating back to particles
+						 */
+						//gridnodes[ix][iy][iz].f.setZero();
 					}
 				}
 			}
 		}
 	}
+}
+
+/*
+ * update grid velocities using grid forces
+ */
+
+void PairSmdMpm::ApplySymmetryBC(int mode) {
+
+	/*
+	 * for now, have nodal position x=0 as symmetry BC
+	 * Particles are assumed to exist on the + face of x
+	 */
+
+	int iy, jy, ky, ix, iz;
+	double py_shifted;
+
+	// find y index corresponding to y = 0
+	py_shifted = 0.0 - min_iy * cellsize + GRID_OFFSET * cellsize;
+	iy = icellsize * py_shifted;
+
+	// we duplicate: (jy = iy -> ky = iy), (jy = iy + 1 -> ky = iy - 1), (jy = iy + 2 -> ky = iy - 2)
+
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iz = 0; iz < grid_nz; iz++) {
+
+			for (int ioffset = 0; ioffset <= 2; ioffset++) {
+				jy = iy + ioffset;
+				ky = iy - ioffset;
+
+				// check that cell indices are within bounds
+				if ((jy < 0) || (jy >= grid_nx)) {
+					printf("map from y cell index %d is outside range 0 .. %d\n", jy, grid_ny);
+					error->one(FLERR, "");
+				}
+
+				if ((ky < 0) || (ky >= grid_nx)) {
+					printf("map to y cell index %d is outside range 0 .. %d\n", ky, grid_ny);
+					error->one(FLERR, "");
+				}
+
+				if (mode == COPY_VELOCITIES) {
+					gridnodes[ix][ky][iz].v(0) += gridnodes[ix][jy][iz].v(0);
+					gridnodes[ix][ky][iz].v(0) += gridnodes[ix][jy][iz].v(0);
+					gridnodes[ix][ky][iz].v(0) += gridnodes[ix][jy][iz].v(0);
+				}
+			}
+		}
+	}
+
 }
 
 void PairSmdMpm::GridToPoints() {
@@ -626,7 +682,7 @@ void PairSmdMpm::GridToPoints() {
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf;
 	double delz_scaled, delz_scaled_abs, wfz;
-	Vector3d vel_grid, dx, vel_particle;
+	Vector3d dx, vel_particle;
 	Matrix3d Bp;
 
 	for (i = 0; i < nlocal; i++) {
@@ -690,24 +746,41 @@ void PairSmdMpm::GridToPoints() {
 //									}
 
 									if (gridnodes[jx][jy][jz].mass > MASS_CUTOFF) {
-										particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f / gridnodes[jx][jy][jz].mass;
+
+										/*
+										 * If a grid node acts as constant velocity boundary condition, its acceleration is actually zero,
+										 * even though non-zero forces are available on such nodes.
+										 * Therefore, normal particles get no acceleration contribution from this particle.
+										 * Velocity BC particles, however, accumulate the nodal accelerations for output purposes.
+										 * Note that velocity BC particles are time-integrated in a special way such that no use
+										 * is made of the particle acceleration data.
+										 *
+										 */
+										if (gridnodes[jx][jy][jz].isVelocityBC) {
+											if (mol[i] == 1000) {
+												particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f / gridnodes[jx][jy][jz].mass;
+											}
+										} else {
+											particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f / gridnodes[jx][jy][jz].mass;
+										}
+
+
 										particleHeatRate[i] += wf * gridnodes[jx][jy][jz].dheat_dt;
 										particleHeat[i] += wf * gridnodes[jx][jy][jz].heat;
 									}
 
-//									if (wf > 0.0) {
-//										if (mol[i] == 1000) {
-//											printf("check\n");
-//											if ((vel_grid - vel_particle).norm() > 1.0e-6) {
-//												cout << "mol = " << mol[i] << ",  grid BC status is "
-//														<< gridnodes[jx][jy][jz].isVelocityBC << endl;
-//												cout << "vel error " << (vel_grid - vel_particle).norm() << endl;
-//												cout << "grid vel is " << vel_grid.transpose() << endl;
-//												cout << "particle vel is " << vel_particle.transpose() << endl << endl;
-//
-//											}
-//										}
-//									}
+									if (wf > 0.0) {
+										if (mol[i] == 1000) {
+											if ((gridnodes[jx][jy][jz].v - vel_particle).norm() > 1.0e-6) {
+												cout << "mol = " << mol[i] << ",  grid BC status is "
+														<< gridnodes[jx][jy][jz].isVelocityBC << endl;
+												cout << "vel error " << (gridnodes[jx][jy][jz].v - vel_particle).norm() << endl;
+												cout << "grid vel is " << gridnodes[jx][jy][jz].v.transpose() << endl;
+												cout << "particle vel is " << vel_particle.transpose() << endl << endl;
+
+											}
+										}
+									}
 
 								}
 							}
@@ -874,32 +947,32 @@ void PairSmdMpm::USF() {
 
 	CreateGrid();
 
-	timeone_PointstoGrid -= getCPUTime();
+	timeone_PointstoGrid -= MPI_Wtime();
 	PointsToGrid();
-	timeone_PointstoGrid += getCPUTime();
+	ApplyVelocityBC();
+	timeone_PointstoGrid += MPI_Wtime();
 
-	timeone_Gradients -= getCPUTime();
+	timeone_Gradients -= MPI_Wtime();
 	ComputeVelocityGradient(); // using current velocities
-	timeone_Gradients += getCPUTime();
+	timeone_Gradients += MPI_Wtime();
 
-	timeone_MaterialModel -= getCPUTime();
+	timeone_MaterialModel -= MPI_Wtime();
 	GetStress();
 	AssembleStressTensor();
 	comm->forward_comm_pair(this);
-	timeone_MaterialModel += getCPUTime();
+	timeone_MaterialModel += MPI_Wtime();
 
-	//ApplyVelocityBC();
-	timeone_GridForces -= getCPUTime();
+	timeone_GridForces -= MPI_Wtime();
 	ComputeGridForces();
-	timeone_GridForces += getCPUTime();
+	timeone_GridForces += MPI_Wtime();
 
-	timeone_UpdateGrid -= getCPUTime();
+	timeone_UpdateGrid -= MPI_Wtime();
 	UpdateGridVelocities();
-	timeone_UpdateGrid += getCPUTime();
+	timeone_UpdateGrid += MPI_Wtime();
 
-	timeone_GridToPoints -= getCPUTime();
+	timeone_GridToPoints -= MPI_Wtime();
 	GridToPoints();
-	timeone_GridToPoints += getCPUTime();
+	timeone_GridToPoints += MPI_Wtime();
 
 	DestroyGrid();
 }
@@ -1144,7 +1217,7 @@ void PairSmdMpm::AssembleStressTensor() {
 					break;
 				}
 
-				StressRateDevJaumann = stressRateDev; // - W * oldStressDeviator + oldStressDeviator * W;
+				StressRateDevJaumann = stressRateDev - W * oldStressDeviator + oldStressDeviator * W;
 				newStressDeviator = oldStressDeviator + dt * StressRateDevJaumann;
 
 				// estimate effective shear modulus for time step stability

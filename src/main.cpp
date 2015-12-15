@@ -15,7 +15,7 @@
 #include "lammps.h"
 #include "input.h"
 #include "string.h"
-#include "gperftools/profiler.h"
+//#include "gperftools/profiler.h"
 
 using namespace LAMMPS_NS;
 

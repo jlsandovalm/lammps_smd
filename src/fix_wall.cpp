@@ -218,8 +218,9 @@ int FixWall::setmask()
   else mask |= POST_FORCE;
 
   mask |= THERMO_ENERGY;
-  mask |= POST_FORCE_RESPA;
-  mask |= MIN_POST_FORCE;
+  mask |= PRE_FORCE;
+  //mask |= POST_FORCE_RESPA;
+  //mask |= MIN_POST_FORCE;
   return mask;
 }
 

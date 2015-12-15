@@ -33,6 +33,7 @@
 using namespace LAMMPS_NS;
 using namespace FixConst;
 #define DELTA 16384
+#define VFRAC_SCALE true
 
 /* ---------------------------------------------------------------------- */
 
@@ -210,6 +211,11 @@ void FixPeriNeighGCG::setup(int vflag) {
 	nmax = atom->nmax;
 	grow_arrays(nmax);
 
+	double lc = domain->lattice->xlattice;
+	double half_lc = 0.5 * lc;
+	double vfrac_scale = 1.0;
+	double r, delta;
+
 	// create partner list and r0 values from neighbor list
 	// compute vinter for each atom
 
@@ -242,18 +248,30 @@ void FixPeriNeighGCG::setup(int vflag) {
 				cutsq = (radius[i] + radius[j]) * (radius[i] + radius[j]);
 
 				if (rsq <= cutsq) {
+
+					// scale vfrac[j] if particle j near the horizon
+					r = sqrt(rsq);
+					delta = radius[i] + radius[j];
+#                   if VFRAC_SCALE == true
+					if ((fabs(r - delta)) <= half_lc) {
+						vfrac_scale = (-1.0 / (2 * half_lc)) * (r) + (1.0 + ((delta - half_lc) / (2 * half_lc)));
+					} else {
+						vfrac_scale = 1.0;
+					}
+#                   endif
+
 					partner[i][npartner[i]] = tag[j];
 					r0[i][npartner[i]] = sqrt(rsq);
 					plastic_stretch[i][npartner[i]] = 0.0;
 					npartner[i]++;
-					vinter[i] += vfrac[j];
+					vinter[i] += vfrac[j] * vfrac_scale;
 
 					if (j < nlocal) {
 						partner[j][npartner[j]] = tag[i];
 						r0[j][npartner[j]] = sqrt(rsq);
 						plastic_stretch[j][npartner[j]] = 0.0;
 						npartner[j]++;
-						vinter[j] += vfrac[i];
+						vinter[j] += vfrac[i] * vfrac_scale;
 					}
 				} // end check for distance
 			} // end check for molecule[i] == molecule[j]
@@ -516,30 +534,26 @@ int FixPeriNeighGCG::size_restart(int nlocal) {
 	return 2 * npartner[nlocal] + 3;
 }
 
-
 /* ---------------------------------------------------------------------- */
 
-int FixPeriNeighGCG::pack_forward_comm(int n, int *list, double *buf,
-                                    int pbc_flag, int *pbc)
-{
-  int i,j,m;
+int FixPeriNeighGCG::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, int *pbc) {
+	int i, j, m;
 
-  m = 0;
-  for (i = 0; i < n; i++) {
-    j = list[i];
-    buf[m++] = vinter[j];
-  }
-  return m;
+	m = 0;
+	for (i = 0; i < n; i++) {
+		j = list[i];
+		buf[m++] = vinter[j];
+	}
+	return m;
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixPeriNeighGCG::unpack_forward_comm(int n, int first, double *buf)
-{
-  int i,m,last;
+void FixPeriNeighGCG::unpack_forward_comm(int n, int first, double *buf) {
+	int i, m, last;
 
-  m = 0;
-  last = first + n;
-  for (i = first; i < last; i++)
-    vinter[i] = buf[m++];
+	m = 0;
+	last = first + n;
+	for (i = first; i < last; i++)
+		vinter[i] = buf[m++];
 }

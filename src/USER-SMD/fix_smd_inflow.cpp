@@ -37,6 +37,7 @@ enum {
 
 #define BIG      1.0e30
 #define EPSILON  1.0e-6
+#define DEBUG false
 
 /* ---------------------------------------------------------------------- */
 
@@ -313,8 +314,15 @@ void FixSmdInflow::post_force(int vflag) {
 /* ---------------------------------------------------------------------- */
 
 void FixSmdInflow::pre_exchange() {
+
+	if (comm->layout == LAYOUT_TILED) {
+		error->all(FLERR, "cannot use comm_style tiled with fix smd/inflow -- use comm_style brick\n");
+	}
+
 	int ntimestep = update->ntimestep;
 	int addnode = 0;
+	double *sublo = domain->sublo;
+	double *subhi = domain->subhi;
 
 	if (ntimestep % freq == 0) {
 		//printf("proc %d enerts pre-exchange\n", comm->me);
@@ -388,6 +396,7 @@ void FixSmdInflow::pre_exchange() {
 
 			double x[3];
 			int i, j, k;
+
 			for (k = klo; k <= khi; k++) {
 
 				//printf("k = %d\n", k);
@@ -399,16 +408,54 @@ void FixSmdInflow::pre_exchange() {
 						x[2] = k;
 
 						int flag = 0;
+
 						// convert from lattice coords to box coords
 						domain->lattice->lattice2box(x[0], x[1], x[2]);
 
+						if (x[0] >= sublo[0]) {
+							if (x[0] < subhi[0]) {
+								if (x[1] >= sublo[1]) {
+									if (x[1] < subhi[1]) {
+										if (x[2] >= sublo[2]) {
+											if (x[2] < subhi[2]) {
+												flag = 1;
+											} else {
+												if (DEBUG)
+													printf("z=%f > box hi =%f\n", x[2], subhi[2]);
+											}
+										} else {
+											if (DEBUG)
+												printf("z=%f > box hi =%f\n", x[2], sublo[2]);
+										}
+									} else {
+										if (DEBUG)
+											printf("y=%f > box hi =%f\n", x[1], subhi[1]);
+									}
+								} else {
+									if (DEBUG)
+										printf("y=%f > box hi =%f\n", x[1], sublo[1]);
+								}
+							} else {
+								if (DEBUG)
+									printf("x=%f > box hi =%f\n", x[0], subhi[0]);
+							}
+						} else {
+							if (DEBUG)
+								printf("x=%f < box x=%f\n", x[0], sublo[0]);
+						}
+
+						if ((flag == 0) && (DEBUG)) {
+							printf("cannot insert pos = %f %f %f\n", x[0], x[1], x[2]);
+							printf("box lo %f %f %f\n", sublo[0], sublo[1], sublo[2]);
+							printf("box hi %f %f %f\n", subhi[0], subhi[1], subhi[2]);
+						}
+
 						if (!domain->regions[nregion]->match(x[0], x[1], x[2])) {
 							//printf("no match for pos = %f %f %f\n", x[0], x[1], x[2]);
-							continue;
+							flag = 0;
 						}
-						x[insertion_dimension] -= displacement_excess;
 
-						flag = 1;
+						x[insertion_dimension] -= displacement_excess;
 
 						//printf("**** STILL WANT TO INSERT 1\n");
 

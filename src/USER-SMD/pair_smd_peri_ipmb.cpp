@@ -44,10 +44,12 @@
 #include "neigh_request.h"
 #include "memory.h"
 #include "error.h"
+#include "lattice.h"
 
 using namespace LAMMPS_NS;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
+#define VFRAC_SCALE true
 
 #if defined(__clang__) || defined (__GNUC__)
 # define ATTRIBUTE_NO_SANITIZE_ADDRESS __attribute__((no_sanitize_address))
@@ -246,6 +248,9 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 
 	/* ----------------------- PERIDYNAMIC BOND FORCES --------------------- */
 	stable_time_increment = 9999999999.0;
+	double lc = domain->lattice->xlattice;
+	double half_lc = 0.5 * lc;
+	double vfrac_scale = 1.0;
 
 	for (i = 0; i < nlocal; i++) {
 
@@ -304,14 +309,22 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 			}
 
 			if (domain->dimension == 2) {
-				c = 4.5 * bulkmodulus[itype][jtype] * (1.0 / vinter[i] + 1.0 / vinter[j]);
+				c = 2.25 * bulkmodulus[itype][jtype] * (1.0 / vinter[i] + 1.0 / vinter[j]);
 			} else {
-				c = 9.0 * bulkmodulus[itype][jtype] * (1.0 / vinter[i] + 1.0 / vinter[j]);
+				c = 4.5 * bulkmodulus[itype][jtype] * (1.0 / vinter[i] + 1.0 / vinter[j]);
 			}
 
+			// scale vfrac[j] if particle j near the horizon
+#           if VFRAC_SCALE == true
+			if ((fabs(r0[i][jj] - delta)) <= half_lc)
+			vfrac_scale = (-1.0 / (2 * half_lc)) * (r0[i][jj]) + (1.0 + ((delta - half_lc) / (2 * half_lc)));
+			else
+			vfrac_scale = 1.0;
+#           endif
+
 			// force computation -- note we divide by a factor of r
-			evdwl = 0.5 * c * stretch * stretch * vfrac[i] * vfrac[j];
-			fpair = -c * vfrac[i] * vfrac[j] * stretch / r0[i][jj];
+			evdwl = 0.5 * c * stretch * stretch * vfrac[i] * vfrac[j] * vfrac_scale;
+			fpair = -c * vfrac[i] * vfrac[j] * stretch / r0[i][jj] * vfrac_scale;
 
 			dforce_dr = c * vfrac[i] * vfrac[j] / r0[i][jj];
 			k = 2.0 * dforce_dr / (rmass[i] + rmass[j]);
@@ -328,7 +341,7 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 				delvely = vytmp - v[j][1];
 				delvelz = vztmp - v[j][2];
 				strain_rate = (delx * delvelx + dely * delvely + delz * delvelz) / (r * r0[i][jj]); // pair-wise strain rate
-				fpair -= rho0[itype][jtype] * alpha[itype][jtype] * c0[itype][jtype] * strain_rate;
+				fpair -= 0.5 * (vfrac[i] + vfrac[j]) * rho0[itype][jtype] * alpha[itype][jtype] * c0[itype][jtype] * strain_rate;
 			}
 
 			// project force -- missing factor of r is recovered here as delx, dely ... are not unit vectors

@@ -75,6 +75,7 @@ public:
 	void MUSL();
 	void USF();
 	void USL();
+	void ApplySymmetryBC(int mode);
 
 protected:
 
