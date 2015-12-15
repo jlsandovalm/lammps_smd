@@ -17,7 +17,7 @@ variable        skin equal 0.5*${h} # Verlet list range
 
 units		si
 dimension       2
-boundary        s f p
+boundary        s s p
 atom_style      smd
 comm_style      brick
 neighbor        ${skin} bin
@@ -42,7 +42,7 @@ set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
 set             group all smd_contact_radius ${cr}
 
-pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0.01
+pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_x_+ 0 sym_x_- 0.9
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
@@ -70,7 +70,7 @@ variable        amz equal angmom(all,z) # angular momentum
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 #timestep        0
 fix             dtfix all smd/adjust_dt 0.5
-fix             integration_fix all smd/integrate_mpm FLIP 0 # actual integration for equations of motion
+fix             integration_fix all smd/integrate_mpm FLIP 0.99 # actual integration for equations of motion
 
 variable        dumpFreq equal 100
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
@@ -84,6 +84,6 @@ thermo          100
 thermo_style    custom step ke pe v_etot c_alleint dt v_amz f_dtfix
 fix extra all print 1 "${ekin} ${epot} ${eint} ${etot}" file energy.dat screen no
 
-velocity        disc1 set 0 -0.1 0 units box
+velocity        disc1 set 0 -0.05 0 units box
 
-run  2000
+run  20000

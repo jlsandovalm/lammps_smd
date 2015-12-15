@@ -696,49 +696,93 @@ void PairSmdMpm::ApplySymmetryBC(int mode) {
 		}
 	}
 
-//	if (symmetry_plane_x_plus_exists) {
-//
-//		// find x grid index corresponding location of x plus symmetry plane
-//		px_shifted = symmetry_plane_x_plus_location - min_ix * cellsize + GRID_OFFSET * cellsize;
-//		ix = icellsize * px_shifted;
-//
-//		if ((ix < 0) || (ix >= grid_nx)) {
-//			printf("x cell index %d is outside range 0 .. %d\n", ix, grid_nx);
-//			error->one(FLERR, "");
-//		}
-//
-//		for (iy = 0; iy < grid_ny; iy++) {
-//			for (iz = 0; iz < grid_nz; iz++) {
-//
-//				// set y velocity to zero in the symmetry plane
-//				gridnodes[ix][iy][iz].v(0) = 0.0;
-//				gridnodes[ix][iy][iz].vest(0) = 0.0;
-//				gridnodes[ix][iy][iz].f(0) = 0.0;
-//
-//				// mirror velocity of nodes on the +-side to the -side
-//
-//				source = ix + 1;
-//				target = ix - 1;
-//
-//				// check that cell indices are within bounds
-//				if ((source < 0) || (source >= grid_nx)) {
-//					printf("map from x cell index %d is outside range 0 .. %d\n", source, grid_nx);
-//					error->one(FLERR, "");
-//				}
-//
-//				if ((target < 0) || (target >= grid_nx)) {
-//					printf("map to x cell index %d is outside range 0 .. %d\n", target, grid_nx);
-//					error->one(FLERR, "");
-//				}
-//
-//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-//				gridnodes[target][iy][iz].v(0) 		= -gridnodes[source][iy][iz].v(0);
-//				gridnodes[target][iy][iz].vest(0) 	= -gridnodes[source][iy][iz].vest(0);
-//				gridnodes[target][iy][iz].f(0) 		= -gridnodes[source][iy][iz].f(0);
-//				gridnodes[target][iy][iz].mass 		=  gridnodes[source][iy][iz].mass;
-//			}
-//		}
-//	}
+	if (symmetry_plane_x_plus_exists) {
+
+		// find x grid index corresponding location of x plus symmetry plane
+		px_shifted = symmetry_plane_x_plus_location - min_ix * cellsize + GRID_OFFSET * cellsize;
+		ix = icellsize * px_shifted;
+
+		if ((ix < 0) || (ix >= grid_nx)) {
+			printf("x cell index %d is outside range 0 .. %d\n", ix, grid_nx);
+			error->one(FLERR, "");
+		}
+
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+
+				// set y velocity to zero in the symmetry plane
+				gridnodes[ix][iy][iz].v(0) = 0.0;
+				gridnodes[ix][iy][iz].vest(0) = 0.0;
+				gridnodes[ix][iy][iz].f(0) = 0.0;
+
+				// mirror velocity of nodes on the +-side to the -side
+
+				source = ix + 1;
+				target = ix - 1;
+
+				// check that cell indices are within bounds
+				if ((source < 0) || (source >= grid_nx)) {
+					printf("map from x cell index %d is outside range 0 .. %d\n", source, grid_nx);
+					error->one(FLERR, "");
+				}
+
+				if ((target < 0) || (target >= grid_nx)) {
+					printf("map to x cell index %d is outside range 0 .. %d\n", target, grid_nx);
+					error->one(FLERR, "");
+				}
+
+				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+				gridnodes[target][iy][iz].v(0) 		= -gridnodes[source][iy][iz].v(0);
+				gridnodes[target][iy][iz].vest(0) 	= -gridnodes[source][iy][iz].vest(0);
+				gridnodes[target][iy][iz].f(0) 		= -gridnodes[source][iy][iz].f(0);
+				gridnodes[target][iy][iz].mass 		=  gridnodes[source][iy][iz].mass;
+			}
+		}
+	}
+
+	if (symmetry_plane_x_minus_exists) {
+
+			// find x grid index corresponding location of x plus symmetry plane
+			px_shifted = symmetry_plane_x_minus_location - min_ix * cellsize + GRID_OFFSET * cellsize;
+			ix = icellsize * px_shifted;
+
+			if ((ix < 0) || (ix >= grid_nx)) {
+				printf("x cell index %d is outside range 0 .. %d\n", ix, grid_nx);
+				error->one(FLERR, "");
+			}
+
+			for (iy = 0; iy < grid_ny; iy++) {
+				for (iz = 0; iz < grid_nz; iz++) {
+
+					// set y velocity to zero in the symmetry plane
+					gridnodes[ix][iy][iz].v(0) = 0.0;
+					gridnodes[ix][iy][iz].vest(0) = 0.0;
+					gridnodes[ix][iy][iz].f(0) = 0.0;
+
+					// mirror velocity of nodes on the +-side to the -side
+
+					source = ix - 1;
+					target = ix + 1;
+
+					// check that cell indices are within bounds
+					if ((source < 0) || (source >= grid_nx)) {
+						printf("map from x cell index %d is outside range 0 .. %d\n", source, grid_nx);
+						error->one(FLERR, "");
+					}
+
+					if ((target < 0) || (target >= grid_nx)) {
+						printf("map to x cell index %d is outside range 0 .. %d\n", target, grid_nx);
+						error->one(FLERR, "");
+					}
+
+					// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+					gridnodes[target][iy][iz].v(0) 		= -gridnodes[source][iy][iz].v(0);
+					gridnodes[target][iy][iz].vest(0) 	= -gridnodes[source][iy][iz].vest(0);
+					gridnodes[target][iy][iz].f(0) 		= -gridnodes[source][iy][iz].f(0);
+					gridnodes[target][iy][iz].mass 		=  gridnodes[source][iy][iz].mass;
+				}
+			}
+		}
 
 
 }

@@ -1,0 +1,131 @@
+####################################################################################################
+#
+# unit sytem: GPa / mm / ms
+#
+####################################################################################################
+
+####################################################################################################
+# MATERIAL PARAMETERS
+####################################################################################################
+variable        rho_water equal 1000 # mass density water
+variable        c0 equal 63.0 # speed of sound for water
+variable        K equal  ${c0}*${c0}*${rho_water} # Young's modulus for solid objects
+variable        nu equal 0.3 # Poisson ratio for solid objects
+variable        G equal 3*${K}*(1-2*${nu})/(2*(1+${nu}))
+variable        sigma_yield equal 1.1*${G} # plastic yield stress for solid objects
+variable        hardening_parameter equal 0 # plastic hardening parameter for solid objects
+variable        contact_stiffness equal 10*${K} # contact force amplitude
+variable        q1 equal 0.06 # artificial viscosity
+variable        q2 equal 0.0 # artificial viscosity
+variable        Hg equal 10 # Hourglass control coefficient for solid objects
+variable        Cp equal 1.0 # heat capacity -- not used here
+variable        contact_scale equal 2.0 # scale factor to increase contact gap between bodies
+
+####################################################################################################
+# INITIALIZE LAMMPS
+####################################################################################################
+units		si
+dimension       2
+boundary        f f p
+atom_style      smd
+comm_modify     vel yes
+newton          off
+comm_style      brick
+
+####################################################################################################
+# CREATE SIMULATION BOX
+####################################################################################################
+# create simulation box, a container, and a water column
+variable        l0 equal 0.01 # initial particle lattice spacing
+region          box block 0 1 0 2 -0.001 0.001 units box
+create_box      1 box
+
+####################################################################################################
+# DEFINE BOUNDARY CONDITIONS
+#
+# note that the the particles constituting the container are simply not integrated in time,
+# thus these particles never move. This is equivalent to a fixed displacement boundary condition.
+####################################################################################################
+fix             gfix all gravity -9.81 vector 0 1 0 # add gravity
+
+####################################################################################################
+# CREATE MOVING OBJECTS
+####################################################################################################
+region          water block 0.6 0.99 0.01 0.4 EDGE EDGE units box
+lattice         sq ${l0}
+create_atoms    1 region water
+group           water type 1
+
+####################################################################################################
+# DISCRETIZATION PARAMETERS
+####################################################################################################
+variable        h equal 2.5*${l0} # SPH kernel diameter
+variable        vol_one equal ${l0}^2 # initial particle volume for 2d simulation
+variable        contact_radius equal ${l0}/2
+set             group all diameter ${h}
+set             group all smd_contact_radius ${contact_radius}
+set             group all volume  ${vol_one}
+set             group all smd_mass_density ${rho_water}
+variable        skin equal ${h} # Verlet list range
+neighbor        ${skin} bin
+variable        mpm_cellsize equal 2*${l0}
+
+####################################################################################################
+# INTERACTION PHYSICS / MATERIAL MODEL
+# 3 different pair styles are used:
+#     - updated Lagrangian SPH for water
+#     - total Lagrangian SPH for solid objects
+#     - a repulsive Hertzian potential for contact forces between different physical bodies
+####################################################################################################
+pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_x_+ 0 sym_x_- 1
+pair_coeff      1 1  *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
+                              *EOS_TAIT 7 &
+                              *VISCOSITY_NEWTON 0.0e-4 &
+	                      *END
+####################################################################################################
+# TIME INTEGRATION
+####################################################################################################
+fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+fix             integration_fix_water water smd/integrate_mpm FLIP 0.999
+
+####################################################################################################
+# SPECIFY TRAJECTORY OUTPUT
+####################################################################################################
+compute         eint all smd/internal_energy
+compute         contact_radius all smd/contact_radius
+compute         vol all smd/volume
+compute         rho all smd/rho
+compute         peatom all pe/atom
+compute         S water smd/ulsph_stress
+compute         D water smd/ulsph_strain_rate
+compute         damage water smd/damage
+
+dump            dump_id all custom 100 dump.LAMMPS id type x y &
+                fx fy vx vy c_eint c_contact_radius mol &
+                radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_damage
+dump_modify     dump_id first yes
+
+
+####################################################################################################
+# STATUS OUTPUT
+####################################################################################################
+compute         alleint all reduce sum c_eint
+compute         wvol water smd/volume
+variable        etot equal pe+ke+c_alleint+f_gfix # total energy of the system
+thermo          100
+thermo_style    custom step ke pe v_etot c_alleint f_dtfix dt c_wvol
+thermo_modify   lost ignore
+
+####################################################################################################
+# RUN SIMULATION
+####################################################################################################
+run             1
+#fix             balance_fix all balance 1000 0.9 rcb # load balancing for MPI
+fix             2 all enforce2d
+
+#run 400
+#dump_modify     dump_id every 1
+
+run 40000
+#
+#
