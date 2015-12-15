@@ -156,6 +156,9 @@ private:
 	double timeone_PointstoGrid, timeone_Gradients, timeone_MaterialModel, timeone_GridForces,
 	timeone_UpdateGrid, timeone_GridToPoints;
 
+	double symmetry_plane_y_plus_location, symmetry_plane_x_plus_location, symmetry_plane_x_minus_location;
+	bool symmetry_plane_y_plus_exists, symmetry_plane_x_plus_exists, symmetry_plane_x_minus_exists;
+
 };
 
 }

@@ -1,0 +1,89 @@
+# MPM -- Two colliding discs
+# 
+
+variable        rho equal 1 # mass density
+variable        h equal 0.08 # characteristic smoothing length, used here only for determining 
+variable        E equal 1.0 # bulk modulus of the fluid
+variable        nu equal 0.35
+variable        hg equal 0 # hourglass control coefficient, must be zero for fluids.
+variable        art_visc equal 0 # We can set the artificial viscosity to zero if physical visc. is present.
+# ----
+variable        K equal ${E}/(3*(1.-2*${nu}))
+variable        G equal ${E}/(2*(1.+${nu}))
+variable        c0 equal sqrt(${K}/${rho}) # speed of sound
+variable        dt equal 0.125*${h}/${c0} # CFL estimate for the stable timestep
+print           "sound speed is ${c0}, CFL timestep is approximately ${dt}"
+variable        skin equal 0.5*${h} # Verlet list range
+
+units		si
+dimension       2
+boundary        s f p
+atom_style      smd
+comm_style      brick
+neighbor        ${skin} bin
+neigh_modify    every 1 delay 0 check no
+comm_modify     vel yes
+newton          off
+
+region          box block 0 1 0 1 -0.001 0.001 units box
+create_box      1 box
+#region          disc1 sphere 0.15 0.15 0 0.14 units box
+region          disc1 block 0.35 0.7 0.03 0.2 EDGE EDGE units box
+variable        l0 equal 0.01
+lattice         sq ${l0}
+create_atoms    1 region disc1
+group           disc1 region disc1
+
+variable        cr equal 2*${l0}
+variable        vol_one equal ${l0}^2
+variable        mpm_cellsize equal 1*${l0}
+set             group all volume ${vol_one}
+set             group all smd_mass_density ${rho}
+set             group all diameter ${cr}
+set             group all smd_contact_radius ${cr}
+
+pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0.01
+#                           density speed_of_sound artif.visc.  heat.capacity hourglass
+pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
+		*EOS_LINEAR &
+		*END
+
+
+
+
+
+compute         rho all smd/rho
+compute         nn all smd/ulsph_num_neighs
+compute         contact_radius all smd/contact_radius
+compute         eint all smd/internal_energy
+compute         alleint all reduce sum c_eint
+compute         S all smd/ulsph_stress # stress tensor: xx, yy, zz, xy, xz, yz components
+compute         D all smd/ulsph_strain_rate
+variable        etot equal ke+c_alleint+pe
+variable        ekin equal ke
+variable        epot equal pe
+variable        eint equal c_alleint
+variable        amz equal angmom(all,z) # angular momentum
+
+
+# time integration
+timestep        ${dt} # set an initial estimate for the zero-th timestep
+#timestep        0
+fix             dtfix all smd/adjust_dt 0.5
+fix             integration_fix all smd/integrate_mpm FLIP 0 # actual integration for equations of motion
+
+variable        dumpFreq equal 100
+dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
+                fx fy fz vx vy vz c_eint &
+                c_contact_radius c_nn mol c_rho c_S[1] c_S[2] c_S[4] radius &
+                c_D[1] c_D[2] c_D[4] 
+
+dump_modify     dump_id first yes
+
+thermo          100
+thermo_style    custom step ke pe v_etot c_alleint dt v_amz f_dtfix
+fix extra all print 1 "${ekin} ${epot} ${eint} ${etot}" file energy.dat screen no
+
+velocity        disc1 set 0 -0.1 0 units box
+
+run  2000

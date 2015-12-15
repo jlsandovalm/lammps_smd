@@ -94,6 +94,8 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 
 	timeone_PointstoGrid = timeone_Gradients = timeone_MaterialModel = timeone_GridForces = timeone_UpdateGrid =
 			timeone_GridToPoints = 0.0;
+
+	symmetry_plane_y_plus_exists = symmetry_plane_x_plus_exists = symmetry_plane_x_minus_exists = false;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -183,6 +185,27 @@ void PairSmdMpm::CreateGrid() {
 			minz = MIN(minz, x[i][2]);
 			maxz = MAX(maxz, x[i][2]);
 		}
+	}
+
+	if (symmetry_plane_y_plus_exists) {
+		if (miny < symmetry_plane_y_plus_location) {
+			error->one(FLERR, "Cannot have particle below y+ symmetry plane.");
+		}
+		miny = symmetry_plane_y_plus_location;
+	}
+
+	if (symmetry_plane_x_plus_exists) {
+		if (minx < symmetry_plane_x_plus_location) {
+			error->one(FLERR, "Cannot have particle below x+ symmetry plane.");
+		}
+		minx = symmetry_plane_x_plus_location;
+	}
+
+	if (symmetry_plane_x_minus_exists) {
+		if (maxx > symmetry_plane_x_minus_location) {
+			error->one(FLERR, "Cannot have particle above x- symmetry plane.");
+		}
+		maxx = symmetry_plane_x_minus_location;
 	}
 
 	// we want the leftmost index to be 0, i.e. index(minx - kernel bandwidth > 0
@@ -625,46 +648,98 @@ void PairSmdMpm::UpdateGridVelocities() {
 
 void PairSmdMpm::ApplySymmetryBC(int mode) {
 
-	/*
-	 * for now, have nodal position x=0 as symmetry BC
-	 * Particles are assumed to exist on the + face of x
-	 */
+	int iy, ix, iz, source, target;
+	double px_shifted, py_shifted;
 
-	int iy, jy, ky, ix, iz;
-	double py_shifted;
+	if (symmetry_plane_y_plus_exists) {
 
-	// find y index corresponding to y = 0
-	py_shifted = 0.0 - min_iy * cellsize + GRID_OFFSET * cellsize;
-	iy = icellsize * py_shifted;
+		// find y grid index corresponding location of y plus symmetry plane
+		py_shifted = symmetry_plane_y_plus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
+		iy = icellsize * py_shifted;
 
-	// we duplicate: (jy = iy -> ky = iy), (jy = iy + 1 -> ky = iy - 1), (jy = iy + 2 -> ky = iy - 2)
+		if ((iy < 0) || (iy >= grid_ny)) {
+			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
+			error->one(FLERR, "");
+		}
 
-	for (ix = 0; ix < grid_nx; ix++) {
-		for (iz = 0; iz < grid_nz; iz++) {
+		for (ix = 0; ix < grid_nx; ix++) {
+			for (iz = 0; iz < grid_nz; iz++) {
 
-			for (int ioffset = 0; ioffset <= 2; ioffset++) {
-				jy = iy + ioffset;
-				ky = iy - ioffset;
+				// set y velocity to zero in the symmetry plane
+				gridnodes[ix][iy][iz].v(1) = 0.0;
+				gridnodes[ix][iy][iz].vest(1) = 0.0;
+				gridnodes[ix][iy][iz].f(1) = 0.0;
+
+				// mirror velocity of nodes on the +-side to the -side
+
+				source = iy + 1;
+				target = iy - 1;
 
 				// check that cell indices are within bounds
-				if ((jy < 0) || (jy >= grid_nx)) {
-					printf("map from y cell index %d is outside range 0 .. %d\n", jy, grid_ny);
+				if ((source < 0) || (source >= grid_ny)) {
+					printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
 					error->one(FLERR, "");
 				}
 
-				if ((ky < 0) || (ky >= grid_nx)) {
-					printf("map to y cell index %d is outside range 0 .. %d\n", ky, grid_ny);
+				if ((target < 0) || (target >= grid_ny)) {
+					printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
 					error->one(FLERR, "");
 				}
 
-				if (mode == COPY_VELOCITIES) {
-					gridnodes[ix][ky][iz].v(0) += gridnodes[ix][jy][iz].v(0);
-					gridnodes[ix][ky][iz].v(0) += gridnodes[ix][jy][iz].v(0);
-					gridnodes[ix][ky][iz].v(0) += gridnodes[ix][jy][iz].v(0);
-				}
+				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+				gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
+				gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
+				gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
+				gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
+
 			}
 		}
 	}
+
+//	if (symmetry_plane_x_plus_exists) {
+//
+//		// find x grid index corresponding location of x plus symmetry plane
+//		px_shifted = symmetry_plane_x_plus_location - min_ix * cellsize + GRID_OFFSET * cellsize;
+//		ix = icellsize * px_shifted;
+//
+//		if ((ix < 0) || (ix >= grid_nx)) {
+//			printf("x cell index %d is outside range 0 .. %d\n", ix, grid_nx);
+//			error->one(FLERR, "");
+//		}
+//
+//		for (iy = 0; iy < grid_ny; iy++) {
+//			for (iz = 0; iz < grid_nz; iz++) {
+//
+//				// set y velocity to zero in the symmetry plane
+//				gridnodes[ix][iy][iz].v(0) = 0.0;
+//				gridnodes[ix][iy][iz].vest(0) = 0.0;
+//				gridnodes[ix][iy][iz].f(0) = 0.0;
+//
+//				// mirror velocity of nodes on the +-side to the -side
+//
+//				source = ix + 1;
+//				target = ix - 1;
+//
+//				// check that cell indices are within bounds
+//				if ((source < 0) || (source >= grid_nx)) {
+//					printf("map from x cell index %d is outside range 0 .. %d\n", source, grid_nx);
+//					error->one(FLERR, "");
+//				}
+//
+//				if ((target < 0) || (target >= grid_nx)) {
+//					printf("map to x cell index %d is outside range 0 .. %d\n", target, grid_nx);
+//					error->one(FLERR, "");
+//				}
+//
+//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+//				gridnodes[target][iy][iz].v(0) 		= -gridnodes[source][iy][iz].v(0);
+//				gridnodes[target][iy][iz].vest(0) 	= -gridnodes[source][iy][iz].vest(0);
+//				gridnodes[target][iy][iz].f(0) 		= -gridnodes[source][iy][iz].f(0);
+//				gridnodes[target][iy][iz].mass 		=  gridnodes[source][iy][iz].mass;
+//			}
+//		}
+//	}
+
 
 }
 
@@ -758,12 +833,12 @@ void PairSmdMpm::GridToPoints() {
 										 */
 										if (gridnodes[jx][jy][jz].isVelocityBC) {
 											if (mol[i] == 1000) {
-												particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f / gridnodes[jx][jy][jz].mass;
+												particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f
+														/ gridnodes[jx][jy][jz].mass;
 											}
 										} else {
 											particleAccelerations[i] += wf * gridnodes[jx][jy][jz].f / gridnodes[jx][jy][jz].mass;
 										}
-
 
 										particleHeatRate[i] += wf * gridnodes[jx][jy][jz].dheat_dt;
 										particleHeat[i] += wf * gridnodes[jx][jy][jz].heat;
@@ -950,6 +1025,7 @@ void PairSmdMpm::USF() {
 	timeone_PointstoGrid -= MPI_Wtime();
 	PointsToGrid();
 	ApplyVelocityBC();
+	ApplySymmetryBC(COPY_VELOCITIES);
 	timeone_PointstoGrid += MPI_Wtime();
 
 	timeone_Gradients -= MPI_Wtime();
@@ -969,6 +1045,8 @@ void PairSmdMpm::USF() {
 	timeone_UpdateGrid -= MPI_Wtime();
 	UpdateGridVelocities();
 	timeone_UpdateGrid += MPI_Wtime();
+
+	ApplySymmetryBC(COPY_VELOCITIES);
 
 	timeone_GridToPoints -= MPI_Wtime();
 	GridToPoints();
@@ -1364,6 +1442,42 @@ void PairSmdMpm::settings(int narg, char **arg) {
 			APIC = true;
 			if (comm->me == 0) {
 				printf("... will use APIC corrected velocities to conserve momentum\n");
+			}
+		} else if (strcmp(arg[iarg], "sym_y_+") == 0) {
+			symmetry_plane_y_plus_exists = true;
+
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected float following sym_y_+ keyword");
+			}
+			symmetry_plane_y_plus_location = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... +y symmetry plane at y = %f\n", symmetry_plane_y_plus_location);
+			}
+		} else if (strcmp(arg[iarg], "sym_x_+") == 0) {
+			symmetry_plane_x_plus_exists = true;
+
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected float following sym_x_+ keyword");
+			}
+			symmetry_plane_x_plus_location = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... +x symmetry plane at x = %f\n", symmetry_plane_x_plus_location);
+			}
+		} else if (strcmp(arg[iarg], "sym_x_-") == 0) {
+			symmetry_plane_x_minus_exists = true;
+
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected float following sym_x_- keyword");
+			}
+			symmetry_plane_x_minus_location = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... -x symmetry plane at x = %f\n", symmetry_plane_x_minus_location);
 			}
 		} else {
 			char msg[128];

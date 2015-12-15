@@ -265,9 +265,9 @@ void FixSMDIntegrateMpm::final_integrate() {
 
 					//std::cout << "particle vel in integration is " << particleVelocities[i].transpose() << std::endl;
 
-					vest[i][0] = particleVelocities[i](0) + 0.5*dtv * particleAccelerations[i](0); // these are the velocities used for
-					vest[i][1] = particleVelocities[i](1) + 0.5*dtv * particleAccelerations[i](1); // computing the deformation gradient
-					vest[i][2] = particleVelocities[i](2) + 0.5*dtv * particleAccelerations[i](2);
+					vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0); // these are the velocities used for
+					vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1); // computing the deformation gradient
+					vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
 
 				} else {
 					if (!domain->regions[nregion]->match(x[i][0], x[i][1], x[i][2])) {
