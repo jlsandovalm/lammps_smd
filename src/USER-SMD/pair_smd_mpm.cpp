@@ -94,6 +94,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 
 	timeone_PointstoGrid = timeone_Gradients = timeone_MaterialModel = timeone_GridForces = timeone_UpdateGrid =
 			timeone_GridToPoints = 0.0;
+	timeone_SymmetryBC = 0.0;
 
 	symmetry_plane_y_plus_exists = symmetry_plane_y_minus_exists = false;
 	symmetry_plane_x_plus_exists = symmetry_plane_x_minus_exists = false;
@@ -104,7 +105,8 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 
 PairSmdMpm::~PairSmdMpm() {
 
-	double time_PointstoGrid, time_Gradients, time_MaterialModel, time_GridForces, time_UpdateGrid, time_GridToPoints;
+	double time_PointstoGrid, time_Gradients, time_MaterialModel, time_GridForces, time_UpdateGrid, time_GridToPoints,
+			time_SymmetryBC;
 
 	MPI_Allreduce(&timeone_PointstoGrid, &time_PointstoGrid, 1, MPI_DOUBLE, MPI_SUM, world);
 	MPI_Allreduce(&timeone_Gradients, &time_Gradients, 1, MPI_DOUBLE, MPI_SUM, world);
@@ -112,9 +114,10 @@ PairSmdMpm::~PairSmdMpm() {
 	MPI_Allreduce(&timeone_GridForces, &time_GridForces, 1, MPI_DOUBLE, MPI_SUM, world);
 	MPI_Allreduce(&timeone_UpdateGrid, &time_UpdateGrid, 1, MPI_DOUBLE, MPI_SUM, world);
 	MPI_Allreduce(&timeone_GridToPoints, &time_GridToPoints, 1, MPI_DOUBLE, MPI_SUM, world);
+	MPI_Allreduce(&timeone_SymmetryBC, &time_SymmetryBC, 1, MPI_DOUBLE, MPI_SUM, world);
 
 	double time_sum = time_PointstoGrid + time_Gradients + time_MaterialModel + time_GridForces + time_UpdateGrid
-			+ time_GridToPoints;
+			+ time_GridToPoints + time_SymmetryBC;
 	if (comm->me == 0) {
 		printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 		printf("... SMD / MPM CPU (NOT WALL CLOCK) TIMING STATISTICS\n\n");
@@ -130,6 +133,8 @@ PairSmdMpm::~PairSmdMpm() {
 				100 * time_UpdateGrid / time_sum);
 		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "grid to points", time_GridToPoints,
 				100 * time_GridToPoints / time_sum);
+		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "symmetry BC", time_SymmetryBC,
+				100 * time_SymmetryBC / time_sum);
 		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n\n");
 	}
 
@@ -353,19 +358,18 @@ void PairSmdMpm::PointsToGrid() {
 				}
 			}
 
-			for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
+			for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
-				// check that cell indices are within bounds
-				if ((jx < 0) || (jx >= grid_nx)) {
-					printf("x cell index %d is outside range 0 .. %d\n", jx, grid_nx);
+				if ((jz < 0) || (jz >= grid_nz)) {
+					printf("z cell index %d is outside range 0 .. %d\n", jz, grid_nz);
 					error->one(FLERR, "");
 				}
 
-				delx_scaled = px_shifted * icellsize - 1.0 * jx;
-				dx(0) = delx_scaled * cellsize;
-				delx_scaled_abs = fabs(delx_scaled);
-				wfx = DisneyKernel(delx_scaled_abs);
-				if (wfx > 0.0) {
+				delz_scaled = pz_shifted * icellsize - 1.0 * jz;
+				dx(2) = delz_scaled * cellsize;
+				delz_scaled_abs = fabs(delz_scaled);
+				wfz = DisneyKernel(delz_scaled_abs);
+				if (wfz > 0.0) {
 
 					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
@@ -380,18 +384,19 @@ void PairSmdMpm::PointsToGrid() {
 						wfy = DisneyKernel(dely_scaled_abs);
 						if (wfy > 0.0) {
 
-							for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
+							for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
-								if ((jz < 0) || (jz >= grid_nz)) {
-									printf("z cell index %d is outside range 0 .. %d\n", jz, grid_nz);
+								// check that cell indices are within bounds
+								if ((jx < 0) || (jx >= grid_nx)) {
+									printf("x cell index %d is outside range 0 .. %d\n", jx, grid_nx);
 									error->one(FLERR, "");
 								}
 
-								delz_scaled = pz_shifted * icellsize - 1.0 * jz;
-								dx(2) = delz_scaled * cellsize;
-								delz_scaled_abs = fabs(delz_scaled);
-								wfz = DisneyKernel(delz_scaled_abs);
-								if (wfz > 0.0) {
+								delx_scaled = px_shifted * icellsize - 1.0 * jx;
+								dx(0) = delx_scaled * cellsize;
+								delx_scaled_abs = fabs(delx_scaled);
+								wfx = DisneyKernel(delx_scaled_abs);
+								if (wfx > 0.0) {
 
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
@@ -1232,8 +1237,11 @@ void PairSmdMpm::USF() {
 	timeone_PointstoGrid -= MPI_Wtime();
 	PointsToGrid();
 	ApplyVelocityBC();
-	ApplySymmetryBC(COPY_VELOCITIES);
 	timeone_PointstoGrid += MPI_Wtime();
+
+	timeone_SymmetryBC -= MPI_Wtime();
+	ApplySymmetryBC(COPY_VELOCITIES);
+	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_Gradients -= MPI_Wtime();
 	ComputeVelocityGradient(); // using current velocities
@@ -1253,7 +1261,9 @@ void PairSmdMpm::USF() {
 	UpdateGridVelocities();
 	timeone_UpdateGrid += MPI_Wtime();
 
+	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
+	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_GridToPoints -= MPI_Wtime();
 	GridToPoints();

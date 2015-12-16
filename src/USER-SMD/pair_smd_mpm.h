@@ -153,7 +153,7 @@ private:
 	int max_ix, max_iy, max_iz;
 
 	double timeone_PointstoGrid, timeone_Gradients, timeone_MaterialModel, timeone_GridForces, timeone_UpdateGrid,
-			timeone_GridToPoints;
+			timeone_GridToPoints, timeone_SymmetryBC;
 
 	double symmetry_plane_y_plus_location, symmetry_plane_y_minus_location, symmetry_plane_x_plus_location,
 			symmetry_plane_x_minus_location, symmetry_plane_z_plus_location, symmetry_plane_z_minus_location;
