@@ -28,7 +28,7 @@ variable        temp_right equal 100
 ####################################################################################################
 units		si
 dimension       3
-boundary        f f sm
+boundary        f f f
 atom_style      smd
 neigh_modify    every 100 delay 0 check yes
 comm_modify     vel yes cutoff 0.1
@@ -43,7 +43,7 @@ variable        l0 equal 1 # initial particle lattice spacing
 lattice         sc ${l0}
 region          box block -10 30 -10 30 0 10 units lattice
 #region          inflow block 3 7 3 7 9.1 10 units lattice
-region          inflow block -10 -9.1 -10 7 7 10 units box
+region          inflow block -9 -8.1 -10 7 7 10 units box
 region          inflow2 block 27 28 28.1 29 7 10 units box
 create_box      1 box
 
@@ -74,11 +74,11 @@ variable        mpm_cellsize equal 1.0*${l0}
 ####################################################################################################
 # DEFINE BOUNDARY CONDITIONS
 ####################################################################################################
-fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE zlo 0.0 units box
+#fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE zlo 0.0 units box
 #fix             walls all wall/reflect zlo 0.0 units box
 fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
-fix 		inflow all smd/inflow type 1 rho 1000 radius ${l0} freq 20 region inflow velocity 0.05 direction x
-fix 		inflow2 all smd/inflow type 1 rho 1000 radius ${l0} freq 20 region inflow2 velocity -0.05 direction y
+fix 		inflow all smd/inflow type 1 rho 1000 radius ${l0} freq 20 region inflow velocity 0.05 direction x heat 100
+fix 		inflow2 all smd/inflow type 1 rho 1000 radius ${l0} freq 20 region inflow2 velocity -0.05 direction y heat 1
 
 ####################################################################################################
 # SET TEMPERATURE
@@ -94,10 +94,10 @@ variable 	heat_right equal ${temp_right}*${mass_one}*${Cp}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm ${mpm_cellsize}
+pair_style      smd/mpm ${mpm_cellsize} sym_z_+ 0 sym_z_- 10 sym_x_+ -10 sym_x_- 30 sym_y_+ -10 sym_y_- 30
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
-			      *HEAT_CONDUCTION 1.0e4 &
+			      *HEAT_CONDUCTION 1.0e1 &
 	                      *END
 
 ####################################################################################################

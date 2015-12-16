@@ -267,6 +267,7 @@ FixSmdInflow::FixSmdInflow(LAMMPS *lmp, int narg, char **arg) :
 		printf("... will add particles every %d steps. \n", nevery);
 		printf("... particles have velocity %f, volume %f, mass density %f\n", velocity, volume_one, rho);
 		printf("... particles have mass %f, radius %f, contact_radius %f\n", mass_one, radius_one, contact_radius_one);
+		printf("... particles have heat %f\n", heat_one);
 		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n");
 	}
 
@@ -471,6 +472,7 @@ void FixSmdInflow::pre_exchange() {
 							int idx = nlocal - 1;
 							double *vfrac = atom->vfrac;
 							double *rmass = atom->rmass;
+							double *heat = atom->heat;
 							double *contact_radius = atom->contact_radius;
 							double *radius = atom->radius;
 							double **v = atom->v;
@@ -479,6 +481,7 @@ void FixSmdInflow::pre_exchange() {
 							rmass[idx] = mass_one;
 							radius[idx] = radius_one;
 							contact_radius[idx] = contact_radius_one;
+							heat[idx] = heat_one;
 
 							v[idx][0] = vest[idx][0] = 0.0;
 							v[idx][1] = vest[idx][1] = 0.0;

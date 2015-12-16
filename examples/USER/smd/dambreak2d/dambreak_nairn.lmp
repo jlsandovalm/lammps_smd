@@ -1,6 +1,6 @@
 ####################################################################################################
 #
-# unit sytem: GPa / mm / ms
+# unit sytem: Pa / m / s
 #
 ####################################################################################################
 
@@ -8,18 +8,12 @@
 # MATERIAL PARAMETERS
 ####################################################################################################
 variable        rho_water equal 1000 # mass density water
-variable        c0 equal 63.0 # speed of sound for water
-variable        K equal  ${c0}*${c0}*${rho_water} # Young's modulus for solid objects
-variable        nu equal 0.3 # Poisson ratio for solid objects
-variable        G equal 3*${K}*(1-2*${nu})/(2*(1+${nu}))
-variable        sigma_yield equal 1.1*${G} # plastic yield stress for solid objects
-variable        hardening_parameter equal 0 # plastic hardening parameter for solid objects
-variable        contact_stiffness equal 10*${K} # contact force amplitude
+variable        K equal  15.0e3 # bulk modulus -- 15 kPa
+variable        c0 equal sqrt(${K}/${rho_water}) # speed of sound for water
 variable        q1 equal 0.06 # artificial viscosity
 variable        q2 equal 0.0 # artificial viscosity
 variable        Hg equal 10 # Hourglass control coefficient for solid objects
 variable        Cp equal 1.0 # heat capacity -- not used here
-variable        contact_scale equal 2.0 # scale factor to increase contact gap between bodies
 
 ####################################################################################################
 # INITIALIZE LAMMPS
@@ -30,13 +24,13 @@ boundary        f f p
 atom_style      smd
 comm_modify     vel yes
 newton          off
-comm_style      brick
+comm_style      tiled
 
 ####################################################################################################
 # CREATE SIMULATION BOX
 ####################################################################################################
 # create simulation box, a container, and a water column
-variable        l0 equal 0.01 # initial particle lattice spacing
+variable        l0 equal 0.005# initial particle lattice spacing
 region          box block 0 1 0 2 -0.001 0.001 units box
 create_box      1 box
 
@@ -51,22 +45,22 @@ fix             gfix all gravity -9.81 vector 0 1 0 # add gravity
 ####################################################################################################
 # CREATE MOVING OBJECTS
 ####################################################################################################
-region          water block 0.6 0.99 0.01 0.4 EDGE EDGE units box
+region          water block 0.6 1 0.0 0.4 EDGE EDGE units box
 lattice         sq ${l0}
 create_atoms    1 region water
+displace_atoms  all move -1.0e-8 1.0e-8 0 units box # move particles so they do not sit on symmetry planes
 group           water type 1
 
 ####################################################################################################
 # DISCRETIZATION PARAMETERS
 ####################################################################################################
-variable        h equal 2.5*${l0} # SPH kernel diameter
 variable        vol_one equal ${l0}^2 # initial particle volume for 2d simulation
 variable        contact_radius equal ${l0}/2
-set             group all diameter ${h}
+set             group all diameter ${l0}
 set             group all smd_contact_radius ${contact_radius}
 set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho_water}
-variable        skin equal ${h} # Verlet list range
+variable        skin equal ${l0} # Verlet list range
 neighbor        ${skin} bin
 variable        mpm_cellsize equal 2*${l0}
 
@@ -80,13 +74,13 @@ variable        mpm_cellsize equal 2*${l0}
 pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_x_+ 0 sym_x_- 1
 pair_coeff      1 1  *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 7 &
-                              *VISCOSITY_NEWTON 0.0e-4 &
+                              *VISCOSITY_NEWTON 0.5 &
 	                      *END
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water water smd/integrate_mpm FLIP 0.999
+fix             integration_fix_water water smd/integrate_mpm FLIP 0.99
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -110,18 +104,16 @@ dump_modify     dump_id first yes
 # STATUS OUTPUT
 ####################################################################################################
 compute         alleint all reduce sum c_eint
-compute         wvol water smd/volume
 variable        etot equal pe+ke+c_alleint+f_gfix # total energy of the system
 thermo          100
-thermo_style    custom step ke pe v_etot c_alleint f_dtfix dt c_wvol
+thermo_style    custom step ke pe v_etot c_alleint f_dtfix dt c_vol
 thermo_modify   lost ignore
 
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
 run             1
-#fix             balance_fix all balance 1000 0.9 rcb # load balancing for MPI
-fix             2 all enforce2d
+fix             balance_fix all balance 1000 0.9 rcb # load balancing for MPI
 
 #run 400
 #dump_modify     dump_id every 1
