@@ -10,7 +10,7 @@ variable        hg equal 10.0 # hourglass control coefficient
 variable        cp equal 1.0 # heat capacity of material -- not used here
 
 
-variable        G equal ${E}/(2*(1+${nu}))
+variable        G equal 0*${E}/(2*(1+${nu}))
 variable        K equal ${E}/(3*(1-2*${nu}))
 variable        sigy equal 330.3
 variable        c0 equal sqrt(${K}/${rho})
@@ -20,11 +20,11 @@ variable        l0 equal 0.25
 # ----
 variable        dt equal 0.125*${l0}/${c0} # CFL estimate for the stable timestep
 print           "sound speed is ${c0}, CFL timestep is approximately ${dt}"
-variable        skin equal ${l0} # Verlet list range
+variable        skin equal 0.1 # Verlet list range
 
 units		si
-dimension       3
-boundary        s s s
+dimension       2
+boundary        s s p
 atom_style      smd
 comm_style      brick
 neighbor        ${skin} bin
@@ -32,10 +32,10 @@ neigh_modify    every 10 delay 0 check yes
 
 newton          off
 
-region          box block 0 10 0 10 0 4.0 units box
+region          box block -5 5 -5 5 -0.1 0.1 units box
 create_box      1 box
 
-lattice         sc ${l0}
+lattice         sq ${l0}
 create_atoms    1 box
 #displace_atoms  all random 0.1 0.0 0 220578 units box
 variable        mpm_cellsize equal 1.0*${l0}
@@ -74,11 +74,11 @@ variable        amz equal angmom(all,z) # angular momentum
 # time integration
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 #timestep        0
-#fix             dtfix all smd/adjust_dt 0.5
+fix             dtfix all smd/adjust_dt 0.5
 #fix             gfix  all gravity 0.01 vector 0 1 0
 fix             integration_fix all smd/integrate_mpm FLIP 1# actual integration for equations of motion
 
-variable        dumpFreq equal 100
+variable        dumpFreq equal 1
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
                 fx fy fz vx vy vz c_eint &
                 c_contact_radius c_nn mol c_rho c_S[1] c_S[2] c_S[4] radius &
@@ -91,6 +91,6 @@ thermo_style    custom step ke pe v_etot c_alleint dt v_amz
 
 # Apply initial velocity conditions.
 #
-velocity        all ramp vx    -1 11 x -1 11 units box
-#velocity        all ramp vy    -1 11 y -1 11 units box
+velocity        all ramp vx    5 -5 x -5 5 units box
+velocity        all ramp vy    5 -5 y -5 5 units box
 run  100

@@ -20,7 +20,7 @@ set                type 2 meso_rho 0.25
 
 pair_style         hybrid/overlay sph/rhosum 1 sph/idealgas
 pair_coeff         * * sph/rhosum 4.0
-pair_coeff         * * sph/idealgas 0.75 4.0
+pair_coeff         * * sph/idealgas 2.0 4.0
 
 compute            rhoatom all meso_rho/atom
 compute            ieatom all meso_e/atom
@@ -29,7 +29,7 @@ compute            ke all ke
 variable           etot equal c_ke+c_emeso # total energy
 
 # dump positions and local density
-dump               dump_id all custom 100 dump.2d id type x z y c_rhoatom
+dump               dump_id all custom 10 dump.2d id type x z y c_rhoatom
 dump_modify        dump_id first yes
 
 neighbor           0.5 bin
@@ -43,3 +43,7 @@ fix                1 all setforce NULL 0.0 0.0 # treat as a quasi 1d problem
 timestep           0.05
 log                log.2d
 run                400 # run for t=20
+
+undump             dump_id
+dump               dump_id all custom 1 dump.3d.last id type x z y c_rhoatom
+run                0

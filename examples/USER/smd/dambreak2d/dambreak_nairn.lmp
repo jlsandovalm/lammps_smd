@@ -30,7 +30,7 @@ comm_style      tiled
 # CREATE SIMULATION BOX
 ####################################################################################################
 # create simulation box, a container, and a water column
-variable        l0 equal 0.005# initial particle lattice spacing
+variable        l0 equal 0.01# initial particle lattice spacing
 region          box block 0 1 0 2 -0.001 0.001 units box
 create_box      1 box
 
@@ -62,7 +62,7 @@ set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho_water}
 variable        skin equal ${l0} # Verlet list range
 neighbor        ${skin} bin
-variable        mpm_cellsize equal 2*${l0}
+variable        mpm_cellsize equal 1*${l0}
 
 ####################################################################################################
 # INTERACTION PHYSICS / MATERIAL MODEL
@@ -74,13 +74,12 @@ variable        mpm_cellsize equal 2*${l0}
 pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_x_+ 0 sym_x_- 1
 pair_coeff      1 1  *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 7 &
-                              *VISCOSITY_NEWTON 0.5 &
 	                      *END
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water water smd/integrate_mpm FLIP 0.99
+fix             integration_fix_water water smd/integrate_mpm FLIP 1
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
