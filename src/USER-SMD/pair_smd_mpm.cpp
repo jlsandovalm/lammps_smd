@@ -297,16 +297,19 @@ void PairSmdMpm::PointsToGrid() {
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
-				gridnodes[ix][iy][iz].mass = 0.0;
-				gridnodes[ix][iy][iz].heat = 0.0;
-				gridnodes[ix][iy][iz].dheat_dt = 0.0;
-				gridnodes[ix][iy][iz].f.setZero();
-				gridnodes[ix][iy][iz].v.setZero();
-				gridnodes[ix][iy][iz].vest.setZero();
-				gridnodes[ix][iy][iz].isVelocityBC = false;
+				memset(&gridnodes[ix][iy][iz], 0, sizeof(Gridnode));
+//
+//				gridnodes[ix][iy][iz].mass = 0.0;
+//				gridnodes[ix][iy][iz].heat = 0.0;
+//				gridnodes[ix][iy][iz].dheat_dt = 0.0;
+//				gridnodes[ix][iy][iz].f.setZero();
+//				gridnodes[ix][iy][iz].v.setZero();
+//				gridnodes[ix][iy][iz].vest.setZero();
+//				gridnodes[ix][iy][iz].isVelocityBC = false;
 			}
 		}
 	}
+
 
 	// set up Dp matrix for APIC correction
 	eye.setIdentity();
