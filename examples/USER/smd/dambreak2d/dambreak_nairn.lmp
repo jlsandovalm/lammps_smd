@@ -79,7 +79,7 @@ pair_coeff      1 1  *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water water smd/integrate_mpm FLIP 1
+fix             integration_fix_water water smd/integrate_mpm FLIP 0.99
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT

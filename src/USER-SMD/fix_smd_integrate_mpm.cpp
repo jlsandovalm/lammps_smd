@@ -94,10 +94,6 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 			}
 			flip_contribution = force->numeric(FLERR, arg[iarg]);
 
-			if (comm->me == 0) {
-				printf("... will use %3.2f FLIP and %3.2f PIC update for velocities\n", flip_contribution, 1.0 - flip_contribution);
-			}
-
 		} else if (strcmp(arg[iarg], "exclude_region") == 0) {
 			iarg++;
 			if (iarg == narg) {
@@ -122,8 +118,9 @@ FixSMDIntegrateMpm::FixSMDIntegrateMpm(LAMMPS *lmp, int narg, char **arg) :
 
 	}
 
+	pic_contribution = 1.0 - flip_contribution;
 	if (comm->me == 0) {
-		printf("... will use %3.2f FLIP and %3.2f PIC update for velocities\n", flip_contribution, 1.0 - flip_contribution);
+		printf("... will use %3.2f FLIP and %3.2f PIC update for velocities\n", flip_contribution, pic_contribution);
 		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n\n");
 	}
 
@@ -189,6 +186,8 @@ void FixSMDIntegrateMpm::initial_integrate(int vflag) {
 
 void FixSMDIntegrateMpm::final_integrate() {
 
+	//return; // do nothing for now because everything is handeled in MUSL in pair style
+
 	double **x = atom->x;
 	double **v = atom->v;
 	double **vest = atom->vest;
@@ -251,6 +250,12 @@ void FixSMDIntegrateMpm::final_integrate() {
 				}
 
 				if (region_flag == 0) {
+					// PIC position update correction
+					double pic_correction_x =  -0.5 * dtv * pic_contribution * (v[i][0] - particleVelocities[i](0));
+					double pic_correction_y =  -0.5 * dtv * pic_contribution * (v[i][1] - particleVelocities[i](1));
+					double pic_correction_z =  -0.5 * dtv * pic_contribution * (v[i][2] - particleVelocities[i](2));
+
+
 					// mixed FLIP-PIC
 					v[i][0] = (1. - flip_contribution) * particleVelocities[i](0)
 							+ flip_contribution * (v[i][0] + dtv * particleAccelerations[i](0));
@@ -259,15 +264,19 @@ void FixSMDIntegrateMpm::final_integrate() {
 					v[i][2] = (1. - flip_contribution) * particleVelocities[i](2)
 							+ flip_contribution * (v[i][2] + dtv * particleAccelerations[i](2));
 //
-					x[i][0] += dtv * particleVelocities[i](0);
-					x[i][1] += dtv * particleVelocities[i](1);
-					x[i][2] += dtv * particleVelocities[i](2);
+					x[i][0] += dtv * particleVelocities[i](0) + pic_correction_x;
+					x[i][1] += dtv * particleVelocities[i](1) + pic_correction_y;
+					x[i][2] += dtv * particleVelocities[i](2) + pic_correction_z;
 
 					//std::cout << "particle vel in integration is " << particleVelocities[i].transpose() << std::endl;
 
-					vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0); // these are the velocities used for
-					vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1); // computing the deformation gradient
-					vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
+					vest[i][0] = particleVelocities[i](0) + pic_correction_x + dtv * particleAccelerations[i](0);
+					vest[i][1] = particleVelocities[i](1) + pic_correction_y + dtv * particleAccelerations[i](1);
+					vest[i][2] = particleVelocities[i](2) + pic_correction_z + dtv * particleAccelerations[i](2);
+
+					//vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0); // these are the velocities used for
+					//vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1); // computing the deformation gradient
+					//vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
 
 				} else {
 					if (!domain->regions[nregion]->match(x[i][0], x[i][1], x[i][2])) {

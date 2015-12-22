@@ -36,7 +36,7 @@ create_atoms    2 region disc2
 group           disc1 region disc1
 group           disc2 region disc2
 
-variable        cr equal 2*${l0}
+variable        cr equal 0.5*${l0}
 variable        vol_one equal ${l0}^2
 variable        mpm_cellsize equal 1*${l0}
 set             group all volume ${vol_one}
@@ -47,11 +47,11 @@ set             group all smd_contact_radius ${cr}
 pair_style      hybrid/overlay  smd/hertz 1.0 smd/mpm ${mpm_cellsize}
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 smd/mpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
-		*EOS_NONE &
+		*EOS_LINEAR &
                 *STRENGTH_LINEAR ${G} &
 	        *END
 pair_coeff      2 2 smd/mpm *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
-		*EOS_NONE &
+		*EOS_LINEAR &
                 *STRENGTH_LINEAR ${G} &
 	        *END
 pair_coeff      1 2 smd/hertz 0
@@ -74,7 +74,7 @@ variable        amz equal angmom(all,z) # angular momentum
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 #timestep        0
 fix             dtfix all smd/adjust_dt 0.5
-fix             integration_fix all smd/integrate_mpm FLIP 1 # actual integration for equations of motion
+fix             integration_fix all smd/integrate_mpm FLIP 0.99 #actual integration for equations of motion
 
 variable        dumpFreq equal 100
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
