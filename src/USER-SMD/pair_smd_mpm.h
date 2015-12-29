@@ -75,7 +75,10 @@ public:
 	void MUSL();
 	void USF();
 	void USL();
+	void ScatterVelocities();
 	void ApplySymmetryBC(int mode);
+	void AdvanceParticles();
+	void AdvanceParticlesEnergy();
 
 protected:
 

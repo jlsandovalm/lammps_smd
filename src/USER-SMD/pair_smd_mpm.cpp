@@ -62,7 +62,7 @@ using namespace Eigen;
 #define MASS_CUTOFF 1.0e-16
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
-#define GRID_OFFSET 2
+#define GRID_OFFSET 3
 #define FACTOR 1
 
 enum {
@@ -253,9 +253,9 @@ void PairSmdMpm::CreateGrid() {
 	min_iz = icellsize * minz;
 	max_iz = icellsize * maxz;
 
-	grid_nx = (max_ix - min_ix) + 5;
-	grid_ny = (max_iy - min_iy) + 5;
-	grid_nz = (max_iz - min_iz) + 5;
+	grid_nx = (max_ix - min_ix) + 7;
+	grid_ny = (max_iy - min_iy) + 7;
+	grid_nz = (max_iz - min_iz) + 7;
 
 	// allocate grid storage
 	// we need a triple of indices (i, j, k)
@@ -297,13 +297,15 @@ void PairSmdMpm::PointsToGrid() {
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
-				gridnodes[ix][iy][iz].mass = 0.0;
-				gridnodes[ix][iy][iz].heat = 0.0;
-				gridnodes[ix][iy][iz].dheat_dt = 0.0;
-				gridnodes[ix][iy][iz].f.setZero();
-				gridnodes[ix][iy][iz].v.setZero();
-				gridnodes[ix][iy][iz].vest.setZero();
-				gridnodes[ix][iy][iz].isVelocityBC = false;
+				memset(&gridnodes[ix][iy][iz], 0, sizeof(Gridnode));
+//
+//				gridnodes[ix][iy][iz].mass = 0.0;
+//				gridnodes[ix][iy][iz].heat = 0.0;
+//				gridnodes[ix][iy][iz].dheat_dt = 0.0;
+//				gridnodes[ix][iy][iz].f.setZero();
+//				gridnodes[ix][iy][iz].v.setZero();
+//				gridnodes[ix][iy][iz].vest.setZero();
+//				gridnodes[ix][iy][iz].isVelocityBC = false;
 			}
 		}
 	}
@@ -435,6 +437,112 @@ void PairSmdMpm::PointsToGrid() {
 	}
 }
 
+/*
+ * Extrapolate only particle velocities to grid.
+ * Used in MUSL.
+ */
+
+void PairSmdMpm::ScatterVelocities() {
+	double **x = atom->x;
+	double **v = atom->v;
+	double *rmass = atom->rmass;
+	int *type = atom->type;
+	int nlocal = atom->nlocal;
+	int nall = nlocal + atom->nghost;
+	int i, itype;
+	int ix, iy, iz, jx, jy, jz;
+	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wf, wfx, wfy;
+	double delz_scaled, delz_scaled_abs, wfz, particle_mass;
+	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
+	Vector3d vel_particle;
+
+	// clear the grid
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				gridnodes[ix][iy][iz].v.setZero();
+				gridnodes[ix][iy][iz].mass = 0.0;
+			}
+		}
+	}
+
+	for (i = 0; i < nall; i++) {
+
+		itype = type[i];
+		if (setflag[itype][itype]) {
+
+			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
+
+			ix = icellsize * px_shifted;
+			iy = icellsize * py_shifted;
+			iz = icellsize * pz_shifted;
+
+			//vel_particle = rmass[i] * particleVelocities[i];
+			vel_particle << v[i][0], v[i][1], v[i][2];
+			vel_particle *= rmass[i];
+			particle_mass = rmass[i];
+
+			for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
+
+				if ((jz < 0) || (jz >= grid_nz)) {
+					printf("z cell index %d is outside range 0 .. %d\n", jz, grid_nz);
+					error->one(FLERR, "");
+				}
+
+				delz_scaled = pz_shifted * icellsize - 1.0 * jz;
+				delz_scaled_abs = fabs(delz_scaled);
+				wfz = DisneyKernel(delz_scaled_abs);
+				if (wfz > 0.0) {
+					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
+
+						if ((jy < 0) || (jy >= grid_ny)) {
+							printf("y cell indey %d is outside range 0 .. %d\n", jy, grid_ny);
+							error->one(FLERR, "");
+						}
+
+						dely_scaled = py_shifted * icellsize - 1.0 * jy;
+						dely_scaled_abs = fabs(dely_scaled);
+						wfy = DisneyKernel(dely_scaled_abs);
+						if (wfy > 0.0) {
+							for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
+
+								if ((jx < 0) || (jx >= grid_nx)) {
+									printf("x cell index %d is outside range 0 .. %d\n", jx, grid_nx);
+									error->one(FLERR, "");
+								}
+
+								delx_scaled = px_shifted * icellsize - 1.0 * jx;
+								delx_scaled_abs = fabs(delx_scaled);
+								wfx = DisneyKernel(delx_scaled_abs);
+								if (wfx > 0.0) {
+									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
+									gridnodes[jx][jy][jz].v += wf * vel_particle;
+									gridnodes[jx][jy][jz].mass += wf * particle_mass;
+								}
+							}
+						}
+
+					}
+
+				}
+			}
+		} // end if setflag[itype][itype]
+	}
+
+	// normalize grid data
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+					gridnodes[ix][iy][iz].v /= gridnodes[ix][iy][iz].mass;
+				}
+			}
+		}
+	}
+}
+
 void PairSmdMpm::ApplyVelocityBC() {
 	double **x = atom->x;
 	double **v = atom->v;
@@ -517,6 +625,7 @@ void PairSmdMpm::ApplyVelocityBC() {
 void PairSmdMpm::ComputeVelocityGradient() {
 	int *type = atom->type;
 	double **x = atom->x;
+	double *vfrac = atom->vfrac;
 	int nlocal = atom->nlocal;
 	int i, itype;
 
@@ -564,6 +673,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 									g(2) = wfdz * wfx * wfy;
 
 									velocity_gradient += gridnodes[jx][jy][jz].vest * g.transpose();
+									//velocity_gradient += gridnodes[jx][jy][jz].v * g.transpose();
 									particle_heat_gradient += gridnodes[jx][jy][jz].heat * g; // units: energy / distance
 								}
 							}
@@ -1276,11 +1386,17 @@ void PairSmdMpm::USL() {
 	CreateGrid();
 	PointsToGrid();
 	GetStress();
-	AssembleStressTensor();
 	ComputeGridForces();
 	UpdateGridVelocities();
 	GridToPoints();
+
+	AdvanceParticles();
+	// -- compute new grid velocities from updated particle positions
+	ScatterVelocities();
+
 	ComputeVelocityGradient();
+	AssembleStressTensor();
+	AdvanceParticlesEnergy();
 	DestroyGrid();
 }
 
@@ -2342,6 +2458,45 @@ void PairSmdMpm::SolveHeatEquation() {
 
 			}
 		}
+	}
+
+}
+
+/*
+ * do time integration of particles
+ */
+
+void PairSmdMpm::AdvanceParticles() {
+
+	int nlocal = atom->nlocal;
+	int i;
+	double **x = atom->x;
+	double **v = atom->v;
+	double *e = atom->e;
+	double *de = atom->de;
+
+	for (i = 0; i < nlocal; i++) {
+		v[i][0] += update->dt * particleAccelerations[i](0);
+		v[i][1] += update->dt * particleAccelerations[i](1);
+		v[i][2] += update->dt * particleAccelerations[i](2);
+
+		x[i][0] += update->dt * particleVelocities[i](0);
+		x[i][1] += update->dt * particleVelocities[i](1);
+		x[i][2] += update->dt * particleVelocities[i](2);
+
+	}
+
+}
+
+void PairSmdMpm::AdvanceParticlesEnergy() {
+
+	int nlocal = atom->nlocal;
+	int i;
+	double *e = atom->e;
+	double *de = atom->de;
+
+	for (i = 0; i < nlocal; i++) {
+		e[i] += 0.5 * update->dt * de[i];
 	}
 
 }
