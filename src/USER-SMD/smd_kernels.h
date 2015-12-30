@@ -225,6 +225,41 @@ static inline double spikympmKernelDerivative(double r) {
 	}
 }
 
+static void SpikyMPMKernelAndDerivative(const double &icellsize, const double &r_signed, double &wf, double &wfd) {
+
+
+
+	if (r_signed > 0.0) {
+		/*
+		 * no need to change the sign of r
+		 */
+		if (r_signed < 2.0) {
+			wf = 0.125 * (2.0 - r_signed) * (2.0 - r_signed) * (2.0 - r_signed);
+			wfd = 0.375 * (2.0 - r_signed) * (2.0 - r_signed);
+		} else {
+			wf = wfd = 0.0;
+		}
+	} else {
+		double r = fabs(r_signed);
+		if (r < 2.0) {
+			wf = 0.125 * (2.0 - r) * (2.0 - r) * (2.0 - r);
+			wfd = -0.375 * (2.0 - r) * (2.0 - r);
+		} else {
+			wf = wfd = 0.0;
+		}
+	}
+
+	printf("r_signed=%f, wf=%f, wfd=%f\n", r_signed, wf, wfd);
+}
+
+static inline double SpikyMPMKernel(double r) {
+	if (r >= 2.0) {
+		return 0.0;
+	} else {
+		return 0.125 * (2.0 - r) * (2.0 - r) * (2.0 - r);
+	}
+}
+
 }
 
 #endif /* SMD_KERNEL_FUNCTIONS_H_ */

@@ -41,24 +41,19 @@ class FixSMDIntegrateMpm : public Fix {
   FixSMDIntegrateMpm(class LAMMPS *, int, char **);
   int setmask();
   virtual void init();
-  virtual void initial_integrate(int);
   virtual void final_integrate();
   void reset_dt();
 
  private:
   class NeighList *list;
-
   int nregion, region_flag;
   char *idregion;
 
  protected:
-  double dtv,dtf, vlimit, vlimitsq;;
+  enum {DEFAULT_INTEGRATION, CONSTANT_VELOCITY};
+  double dtv, vlimit, vlimitsq;;
   int mass_require;
-  bool adjust_radius_flag;
-  double adjust_radius_factor;
-  int min_nn, max_nn; // number of SPH neighbors should lie within this interval
-  double flip_contribution, pic_contribution;
-
+  double FLIP_contribution, PIC_contribution;
 
   class Pair *pair;
 };

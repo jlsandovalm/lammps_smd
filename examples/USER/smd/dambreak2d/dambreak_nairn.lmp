@@ -71,9 +71,10 @@ variable        mpm_cellsize equal 1*${l0}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_x_+ 0 sym_x_- 1
+pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1 
 pair_coeff      1 1  *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 7 &
+				*VISCOSITY_NEWTON 0.5 &
 	                      *END
 ####################################################################################################
 # TIME INTEGRATION
@@ -92,10 +93,12 @@ compute         peatom all pe/atom
 compute         S water smd/ulsph_stress
 compute         D water smd/ulsph_strain_rate
 compute         damage water smd/damage
+compute         F all smd/tlsph_defgrad
 
 dump            dump_id all custom 100 dump.LAMMPS id type x y &
                 fx fy vx vy c_eint c_contact_radius mol &
-                radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_damage
+                radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_damage &
+		c_F[1] c_F[5] c_F[9] c_F[10]
 dump_modify     dump_id first yes
 
 

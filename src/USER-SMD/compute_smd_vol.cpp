@@ -31,8 +31,10 @@
 #include "force.h"
 #include "memory.h"
 #include "error.h"
+#include <Eigen/Eigen>
 
 using namespace LAMMPS_NS;
+using namespace Eigen;
 
 /* ---------------------------------------------------------------------- */
 
@@ -83,13 +85,17 @@ void ComputeSMDVol::compute_peratom() {
 		vector_atom = volVector;
 	}
 
+	double **smd_data_9 = atom->smd_data_9;
 	double *vfrac = atom->vfrac;
 	int *mask = atom->mask;
 	int nlocal = atom->nlocal;
 
 	for (int i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
-			volVector[i] = vfrac[i];
+			/*
+			 * current volume = original volume * determinant of deformation gradient
+			 */
+			volVector[i] = vfrac[i] * Map<Matrix3d>(smd_data_9[i]).determinant();
 		} else {
 			volVector[i] = 0.0;
 		}

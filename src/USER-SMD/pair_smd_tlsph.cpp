@@ -650,10 +650,28 @@ void PairTlsph::ComputeForces(int eflag, int vflag) {
 
 				//if (r > r0) { // only fail in tension
 
+				// get current displacement vector along bond axis
+				Vector3d current_bond_displacement_vector;
+				current_bond_displacement_vector = update->dt * dv.dot(dx) * dx / (r * r);
+				energy_per_bond[i][jj] += f_stress.dot(current_bond_displacement_vector) / (voli * volj);
+				double Vic = (2.0 / 3.0) * h * h * h; // interaction volume for 2d plane strain
+				double this_energy_release_rate = 2.0 * energy_per_bond[i][jj] * Vic;
+
+				if ((dv.dot(dx) > 0.0) && (r > r0)) {
+					if (this_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
+						partner[i][jj] = 0;
+					}
+				}
+
 				// integration approach
-//				energy_per_bond[i][jj] += update->dt * sumForces.dot(dv) / (voli * volj);
-//				double Vic = (2.0 / 3.0) * h * h * h; // interaction volume for 2d plane strain
-//				double this_energy_release_rate = energy_per_bond[i][jj] * Vic;
+//				if (dv.dot(dx0) > 0.0) {
+//					energy_per_bond[i][jj] += update->dt * sumForces.dot(dv) / (voli * volj);
+//					double Vic = (2.0 / 3.0) * h * h * h; // interaction volume for 2d plane strain
+//					double this_energy_release_rate = 2.0 * energy_per_bond[i][jj] * Vic;
+//					if (this_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
+//						partner[i][jj] = 0;
+//					}
+//				}
 //
 //				// sum all energy release rates to build average
 //				average_energy_release_rate += this_energy_release_rate;
@@ -664,16 +682,16 @@ void PairTlsph::ComputeForces(int eflag, int vflag) {
 //				}
 				//}
 
-				if (r > r0) {
-					// peridynamic linear elastic bond energy
-					double c = 4.5 * Lookup[BULK_MODULUS][itype] / (3.14 * h * h);
-					double s = (r - r0) / r0;
-					double Vic = (2.0 / 3.0) * h * h * h;
-					double this_energy_release_rate = 0.5 * c * s * s * Vic;
-					if (this_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
-						partner[i][jj] = 0;
-					}
-				}
+//				if (r > r0) {
+//					// peridynamic linear elastic bond energy
+//					double c = 4.5 * Lookup[BULK_MODULUS][itype] / (3.14 * h * h);
+//					double s = (r - r0) / r0;
+//					double Vic = (2.0 / 3.0) * h * h * h;
+//					double this_energy_release_rate = 0.5 * c * s * s * Vic;
+//					if (this_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
+//						partner[i][jj] = 0;
+//					}
+//				}
 
 			}
 
@@ -751,7 +769,7 @@ void PairTlsph::ComputeForces(int eflag, int vflag) {
 
 	} // end loop over i
 
-	//printf("update_flag in pair style  =%d\n", updateFlag);
+//printf("update_flag in pair style  =%d\n", updateFlag);
 
 	if (vflag_fdotr)
 		virial_fdotr_compute();

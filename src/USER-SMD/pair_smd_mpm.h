@@ -79,6 +79,9 @@ public:
 	void ApplySymmetryBC(int mode);
 	void AdvanceParticles();
 	void AdvanceParticlesEnergy();
+	void ComputeGridGradients();
+	void DumpGrid();
+	void GridGradientsToParticles();
 
 protected:
 
@@ -96,6 +99,8 @@ protected:
 	int *numNeighs;
 	double *c0;
 	double *particleHeat, *particleHeatRate;
+	double *J; // determinant of deformation gradient
+	double *vol; // current volume
 	Matrix3d *stressTensor, *L, *F;
 	Vector3d *heat_gradient;
 
