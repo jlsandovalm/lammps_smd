@@ -187,7 +187,8 @@ void PairTriSurf::compute(int eflag, int vflag) {
 				 * distance check: is particle closer than its radius to the triangle plane?
 				 */
 				if (fabs(dx.dot(normal)) < r_particle) {
-				//if (true) {
+
+					//if (true) {
 					/*
 					 * get other two triangle vertices
 					 */
@@ -207,6 +208,12 @@ void PairTriSurf::compute(int eflag, int vflag) {
 					 * distance to closest point
 					 */
 					x4cp = x4 - cp;
+
+//					cout << "particle is at " << x4.transpose() << endl;
+//					cout << "closest tri point is " << cp.transpose() << endl;
+//					cout << "dx is " << x4cp.transpose() << endl;
+//					cout << "x4cp dot normal is " << (x4cp / x4cp.norm()).dot(normal) << endl;
+//					cout << "--------------------------------" << endl;
 
 					/*
 					 * flip normal to point in direction of x4cp
@@ -233,9 +240,19 @@ void PairTriSurf::compute(int eflag, int vflag) {
 						fpair /= (r + 1.0e-2 * r_particle); // divide by r + softening and multiply with non-normalized distance vector
 
 						if (particle < nlocal) {
-							f[particle][0] += x4cp(0) * fpair;
-							f[particle][1] += x4cp(1) * fpair;
-							f[particle][2] += x4cp(2) * fpair;
+							//f[particle][0] += x4cp(0) * fpair;
+							//f[particle][1] += x4cp(1) * fpair;
+							//f[particle][2] += x4cp(2) * fpair;
+
+							/*
+							 * ISSUE:
+							 * Should the particle force act along x4cp or along normal?
+							 * x4cp does not neccessarily point along normal.
+							 */
+
+							f[particle][0] += normal(0) * fpair;
+							f[particle][1] += normal(1) * fpair;
+							f[particle][2] += normal(2) * fpair;
 						}
 
 						if (tri < nlocal) {

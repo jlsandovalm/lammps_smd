@@ -101,6 +101,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	symmetry_plane_y_plus_exists = symmetry_plane_y_minus_exists = false;
 	symmetry_plane_x_plus_exists = symmetry_plane_x_minus_exists = false;
 	symmetry_plane_z_plus_exists = symmetry_plane_z_minus_exists = false;
+	noslip_symmetry_plane_y_plus_exists = noslip_symmetry_plane_y_minus_exists = false;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -677,7 +678,7 @@ void PairSmdMpm::ComputeVelocityGradient() {
 									g(2) = wfdz * wfx * wfy;
 
 									velocity_gradient += gridnodes[jx][jy][jz].vest * g.transpose(); // this is for USF
-									//velocity_gradient += gridnodes[jx][jy][jz].v * g.transpose(); // this is for USL
+											//velocity_gradient += gridnodes[jx][jy][jz].v * g.transpose(); // this is for USL
 									particle_heat_gradient += gridnodes[jx][jy][jz].heat * g; // units: energy / distance
 								}
 							}
@@ -793,9 +794,105 @@ void PairSmdMpm::UpdateGridVelocities() {
 	}
 }
 
-/*
- * update grid velocities using grid forces
- */
+void PairSmdMpm::ApplyNoSlipSymmetryBC() {
+
+	int iy, ix, iz, source, target;
+	double px_shifted, py_shifted, pz_shifted;
+
+	if (noslip_symmetry_plane_y_plus_exists) {
+
+		// find y grid index corresponding location of y plus symmetry plane
+		py_shifted = noslip_symmetry_plane_y_plus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
+		iy = icellsize * py_shifted;
+
+		if ((iy < 0) || (iy >= grid_ny)) {
+			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
+			error->one(FLERR, "");
+		}
+
+		for (ix = 0; ix < grid_nx; ix++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+
+				if (ix * cellsize > 40.0) {
+
+					// set all velocities to zero in the symmetry plane -- no slip condition
+					gridnodes[ix][iy][iz].v.setZero();
+					gridnodes[ix][iy][iz].vest.setZero();
+					gridnodes[ix][iy][iz].f.setZero();
+
+					// mirror velocity of nodes on the +-side to the -side
+
+					source = iy + 1;
+					target = iy - 1;
+
+					// check that cell indices are within bounds
+					if ((source < 0) || (source >= grid_ny)) {
+						printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
+						error->one(FLERR, "");
+					}
+
+					if ((target < 0) || (target >= grid_ny)) {
+						printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
+						error->one(FLERR, "");
+					}
+
+					// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+					gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
+					gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
+					gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
+					gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
+				}
+
+			}
+		}
+	}
+
+	if (noslip_symmetry_plane_y_minus_exists) {
+
+		// find y grid index corresponding location of y plus symmetry plane
+		py_shifted = noslip_symmetry_plane_y_minus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
+		iy = icellsize * py_shifted;
+
+		if ((iy < 0) || (iy >= grid_ny)) {
+			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
+			error->one(FLERR, "");
+		}
+
+		for (ix = 0; ix < grid_nx; ix++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+
+				//if (ix * cellsize > 11.0) {
+				// set all velocities to zero in the symmetry plane -- no slip condition
+				gridnodes[ix][iy][iz].v.setZero();
+				gridnodes[ix][iy][iz].vest.setZero();
+				//gridnodes[ix][iy][iz].f.setZero();
+
+				// mirror velocity of nodes on the +-side to the -side
+				source = iy - 1;
+				target = iy + 1;
+
+				// check that cell indices are within bounds
+				if ((source < 0) || (source >= grid_ny)) {
+					printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
+					error->one(FLERR, "");
+				}
+
+				if ((target < 0) || (target >= grid_ny)) {
+					printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
+					error->one(FLERR, "");
+				}
+
+				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+				gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
+				gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
+				gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
+				gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
+				//}
+
+			}
+		}
+	}
+}
 
 void PairSmdMpm::ApplySymmetryBC(int mode) {
 
@@ -1246,7 +1343,6 @@ void PairSmdMpm::UpdateDeformationGradient() {
 	 * the APIC correction matrix Bp
 	 */
 	//error->one(FLERR, "should not be here");
-
 // given the velocity gradient, update the deformation gradient
 	double **smd_data_9 = atom->smd_data_9;
 	double *vol0 = atom->vfrac;
@@ -1265,7 +1361,7 @@ void PairSmdMpm::UpdateDeformationGradient() {
 			 * compute deformation gradient using full exponential propagation
 			 */
 
-			Fincr =  (update->dt * L[i]).exp();
+			Fincr = (update->dt * L[i]).exp();
 			F = Fincr * Map<Matrix3d>(smd_data_9[i]);
 			J[i] = F.determinant();
 			vol[i] = vol0[i] * J[i];
@@ -1350,6 +1446,7 @@ void PairSmdMpm::USF() {
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
+	ApplyNoSlipSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_Gradients -= MPI_Wtime();
@@ -1373,6 +1470,7 @@ void PairSmdMpm::USF() {
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
+	ApplyNoSlipSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_GridToPoints -= MPI_Wtime();
@@ -1483,7 +1581,7 @@ void PairSmdMpm::AssembleStressTensor() {
 	double **tlsph_stress = atom->smd_stress;
 	double *e = atom->e;
 	double *de = atom->de;
-	//double **x = atom->x;
+	double **x = atom->x;
 	int *type = atom->type;
 	double pFinal;
 	int i, itype;
@@ -1580,11 +1678,13 @@ void PairSmdMpm::AssembleStressTensor() {
 					LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
 							newStressDeviator, stressRateDev, plastic_strain_increment);
 
-//					if (x[i][0] > -65.0) {
-//						newStressDeviator.setZero();
-//						stressRateDev.setZero();
-//						plastic_strain_increment = 0.0;
-//					}
+					// this is for MPM extrusion
+
+					if (x[i][0] > -65.0) {
+						newStressDeviator.setZero();
+						stressRateDev.setZero();
+						plastic_strain_increment = 0.0;
+					}
 
 					eff_plastic_strain[i] += plastic_strain_increment;
 
@@ -1811,6 +1911,30 @@ void PairSmdMpm::settings(int narg, char **arg) {
 			if (comm->me == 0) {
 				printf("... -z symmetry plane at z = %f\n", symmetry_plane_z_minus_location);
 			}
+		} else if (strcmp(arg[iarg], "noslip_sym_y_+") == 0) {
+			noslip_symmetry_plane_y_plus_exists = true;
+
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected float following noslip_sym_y_+ keyword");
+			}
+			noslip_symmetry_plane_y_plus_location = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... NOSLIP +y symmetry plane at y = %f\n", noslip_symmetry_plane_y_plus_location);
+			}
+		} else if (strcmp(arg[iarg], "noslip_sym_y_-") == 0) {
+			noslip_symmetry_plane_y_minus_exists = true;
+
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected float following noslip_sym_y_- keyword");
+			}
+			noslip_symmetry_plane_y_minus_location = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... NOSLIP_-y symmetry plane at y = %f\n", noslip_symmetry_plane_y_minus_location);
+			}
 		} else {
 			char msg[128];
 			sprintf(msg, "Illegal keyword for pair smd/mpm: %s\n", arg[iarg]);
@@ -1880,7 +2004,7 @@ void PairSmdMpm::coeff(int narg, char **arg) {
 			}
 		}
 
-		//printf("keyword following *COMMON is %s\n", arg[iNextKwd]);
+//printf("keyword following *COMMON is %s\n", arg[iNextKwd]);
 
 		if (iNextKwd < 0) {
 			sprintf(str, "no *KEYWORD terminates *COMMON");
@@ -2581,7 +2705,7 @@ void PairSmdMpm::DumpGrid() {
 			for (iz = 0; iz < grid_nz; iz++) {
 				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
 //					fprintf(f, "X %f %f %f %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].v(0),
-							//gridnodes[ix][iy][iz].v(1), gridnodes[ix][iy][iz].v(2), gridnodes[ix][iy][iz].Lxx);
+					//gridnodes[ix][iy][iz].v(1), gridnodes[ix][iy][iz].v(2), gridnodes[ix][iy][iz].Lxx);
 				}
 
 			}
