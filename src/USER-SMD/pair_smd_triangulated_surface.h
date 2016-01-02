@@ -50,14 +50,20 @@ class PairTriSurf : public Pair {
   void init_style();
   void init_list(int, class NeighList *);
   virtual double memory_usage();
-  void PointTriangleDistance(const Vector3d P, const Vector3d TRI1, const Vector3d TRI2, const Vector3d TRI3,
+  int PointTriangleDistance(const Vector3d P, const Vector3d TRI1, const Vector3d TRI2, const Vector3d TRI3,
   		Vector3d &CP, double &dist);
   double clamp(const double a, const double min, const double max);
   void *extract(const char *, int &);
+  Vector3d TangentialVelocity(const int, const int, const Vector3d, const double);
 
  protected:
   double **bulkmodulus;
   double **kn;
+  double **wall_temperature;
+  double **frictionCoefficient;
+
+  int nmax;
+  int *ncontact; // number of contacting triangles per particle
 
   double *onerad_dynamic,*onerad_frozen;
   double *maxrad_dynamic,*maxrad_frozen;

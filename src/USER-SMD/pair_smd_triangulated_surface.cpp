@@ -61,7 +61,10 @@ PairTriSurf::PairTriSurf(LAMMPS *lmp) :
 	onerad_dynamic = onerad_frozen = maxrad_dynamic = maxrad_frozen = NULL;
 	bulkmodulus = NULL;
 	kn = NULL;
+	frictionCoefficient = NULL;
 	scale = 1.0;
+	nmax = 0; // make sure no atom on this proc such that initial memory allocation is correct
+	ncontact = NULL;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -73,11 +76,13 @@ PairTriSurf::~PairTriSurf() {
 		memory->destroy(cutsq);
 		memory->destroy(bulkmodulus);
 		memory->destroy(kn);
+		memory->destroy(frictionCoefficient);
 
 		delete[] onerad_dynamic;
 		delete[] onerad_frozen;
 		delete[] maxrad_dynamic;
 		delete[] maxrad_frozen;
+		delete[] ncontact;
 	}
 }
 
@@ -85,10 +90,11 @@ PairTriSurf::~PairTriSurf() {
 
 void PairTriSurf::compute(int eflag, int vflag) {
 	int i, j, ii, jj, inum, jnum, itype, jtype;
-	double rsq, r, evdwl, fpair;
+	double rsq, r, evdwl, normalForceMagnitude;
 	int *ilist, *jlist, *numneigh, **firstneigh;
 	double rcut, r_geom, delta, r_tri, r_particle, touch_distance, dt_crit;
-	int tri, particle;
+	double cosAngle;
+	int tri, particle, region;
 	Vector3d normal, x1, x2, x3, x4, x13, x23, x43, w, cp, x4cp, vnew, v_old;
 	;
 	Vector3d xi, x_center, dx;
@@ -111,6 +117,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
 	double *radius = atom->contact_radius;
+	double *heat = atom->heat;
 	double rcutSq;
 	Vector3d offset;
 
@@ -121,6 +128,16 @@ void PairTriSurf::compute(int eflag, int vflag) {
 	ilist = list->ilist;
 	numneigh = list->numneigh;
 	firstneigh = list->firstneigh;
+
+	if (atom->nmax > nmax) {
+		nmax = atom->nmax;
+		delete[] ncontact;
+		ncontact = new int[nmax];
+	}
+
+	for (i = 0; i < nlocal; i++) {
+		ncontact[i] = 0;
+	}
 
 	int max_neighs = 0;
 	stable_time_increment = 1.0e22;
@@ -187,7 +204,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 				 * distance check: is particle closer than its radius to the triangle plane?
 				 */
 				if (fabs(dx.dot(normal)) < r_particle) {
-				//if (true) {
+					//if (true) {
 					/*
 					 * get other two triangle vertices
 					 */
@@ -201,51 +218,97 @@ void PairTriSurf::compute(int eflag, int vflag) {
 					x3(1) = smd_data_9[tri][7];
 					x3(2) = smd_data_9[tri][8];
 
-					PointTriangleDistance(x4, x1, x2, x3, cp, r);
+					region = PointTriangleDistance(x4, x1, x2, x3, cp, r);
 
-					/*
-					 * distance to closest point
-					 */
-					x4cp = x4 - cp;
-
-					/*
-					 * flip normal to point in direction of x4cp
-					 */
-
-					if (x4cp.dot(normal) < 0.0) {
-						normal *= -1.0;
-					}
 
 					/*
 					 * penalty force pushes particle away from triangle
 					 */
 					if (r < r_particle) {
 
+						/*
+						 * guard against the case that r is very small
+						 */
+						if (r < 1.0e-2 * r_particle) {
+							continue;
+						}
+
+						/*
+						 * distance vector to closest point on triangle
+						 */
+						x4cp = x4 - cp;
+
+						/*
+						 * check validity of result:
+						 * if region = 0, cp is within triangle and x4cp should be parallel to triangle normal
+						 */
+						cosAngle = x4cp.dot(normal) / r;
+						if (region == 0) {
+							if (fabs(cosAngle) - 1.0 > 1.0e-8) {
+								cout << "x4cp   is " << x4cp.transpose() << endl;
+								cout << "normal is " << normal.transpose() << endl;
+								printf("region is %d, expected |cosAngle = 1| but cosAngle is %f\n", region, cosAngle);
+								error->one(FLERR, "");
+							}
+						} else {
+							continue; //skip contact because we only want contact with interior points
+							// contact point is on edge
+							error->warning(FLERR, "contact point is an edge");
+						}
+
+						ncontact[particle] += 1;
+						heat[particle] = wall_temperature[itype][jtype];
+
+						/*
+						 * flip normal to point in direction of x4cp
+						 */
+
+						if (x4cp.dot(normal) < 0.0) {
+							normal *= -1.0;
+						}
+
 						delta = r_particle - r; // overlap distance
 						r_geom = r_particle;
-						fpair = 1.066666667e0 * bulkmodulus[itype][jtype] * delta * sqrt(delta * r_geom);
-						dt_crit = 3.14 * sqrt(rmass[particle] / (fpair / delta));
+						normalForceMagnitude = 1.066666667e0 * bulkmodulus[itype][jtype] * delta * sqrt(delta * r_geom);
+						dt_crit = 3.14 * sqrt(rmass[particle] / (normalForceMagnitude / delta));
 						stable_time_increment = MIN(stable_time_increment, dt_crit);
 
-						evdwl = r * fpair * 0.4e0 * delta; // GCG 25 April: this expression conserves total energy
+						evdwl = r * normalForceMagnitude * 0.4e0 * delta; // GCG 25 April: this expression conserves total energy
 						//printf("tri interaction: r = %f, rcut=%f\n", r, r_particle);
 
-						fpair /= (r + 1.0e-2 * r_particle); // divide by r + softening and multiply with non-normalized distance vector
+
+
+
+						/*
+						 * friction
+						 */
+
+						Vector3d frictionForce;
+						double frictionCoefficient = 0.5;
+						frictionForce = -normalForceMagnitude * frictionCoefficient * TangentialVelocity(particle, tri, x4cp, r);
+
+						/*
+						 * total force = repulsive elastic force along normal
+						 *             + tangential frictional force
+						 */
+
+						Vector3d totalForce = normalForceMagnitude * normal + frictionForce;
 
 						if (particle < nlocal) {
-							f[particle][0] += x4cp(0) * fpair;
-							f[particle][1] += x4cp(1) * fpair;
-							f[particle][2] += x4cp(2) * fpair;
+							f[particle][0] += totalForce(0);
+							f[particle][1] += totalForce(1);
+							f[particle][2] += totalForce(2);
 						}
 
 						if (tri < nlocal) {
-							f[tri][0] -= x4cp(0) * fpair;
-							f[tri][1] -= x4cp(1) * fpair;
-							f[tri][2] -= x4cp(2) * fpair;
+							f[tri][0] -= totalForce(0);
+							f[tri][1] -= totalForce(1);
+							f[tri][2] -= totalForce(2);
 						}
 
 						if (evflag) {
-							ev_tally(i, j, nlocal, newton_pair, evdwl, 0.0, fpair, x4cp(0), x4cp(1), x4cp(2));
+							normalForceMagnitude /= r; // divide by r because ev_tally expects force * distance vector
+							ev_tally(i, j, nlocal, newton_pair, evdwl, 0.0, normalForceMagnitude, x4cp(0), x4cp(1), x4cp(2));
 						}
 
 					}
@@ -304,6 +367,26 @@ void PairTriSurf::compute(int eflag, int vflag) {
 }
 
 /* ----------------------------------------------------------------------
+ compute frictional force between particle and triangle surface
+ ------------------------------------------------------------------------- */
+
+Vector3d PairTriSurf::TangentialVelocity(const int particle, const int tri, const Vector3d dx, const double r) {
+	double **v = atom->v;
+	Map<const Vector3d> v_particle(v[particle]);
+	Map<const Vector3d> v_tri(v[tri]);
+
+	Vector3d vrel = v_particle - v_tri; // relative translational velocity, points from tri to node, like dx
+
+	double vnnr = vrel.dot(dx);
+
+	Vector3d vnormal = dx * vnnr / (r * r); // normal velocity
+
+	Vector3d vtan = vrel - vnormal; // tangential velocity component
+
+	return vtan;
+}
+
+/* ----------------------------------------------------------------------
  allocate all arrays
  ------------------------------------------------------------------------- */
 
@@ -318,6 +401,8 @@ void PairTriSurf::allocate() {
 
 	memory->create(bulkmodulus, n + 1, n + 1, "pair:kspring");
 	memory->create(kn, n + 1, n + 1, "pair:kn");
+	memory->create(wall_temperature, n + 1, n + 1, "pair:wall_temperature");
+	memory->create(frictionCoefficient, n + 1, n + 1, "pair:frictionCoefficient");
 
 	memory->create(cutsq, n + 1, n + 1, "pair:cutsq"); // always needs to be allocated, even with granular neighborlist
 
@@ -350,8 +435,8 @@ void PairTriSurf::settings(int narg, char **arg) {
  ------------------------------------------------------------------------- */
 
 void PairTriSurf::coeff(int narg, char **arg) {
-	if (narg != 3)
-		error->all(FLERR, "Incorrect args for pair coefficients");
+	if (narg != 5)
+		error->all(FLERR, "Incorrect args for pair coefficients. Expected: i, j, contact_stiffness, wall_temperature, friction_coefficient");
 	if (!allocated)
 		allocate();
 
@@ -360,6 +445,8 @@ void PairTriSurf::coeff(int narg, char **arg) {
 	force->bounds(arg[1], atom->ntypes, jlo, jhi);
 
 	double bulkmodulus_one = atof(arg[2]);
+	double wall_temperature_one = atof(arg[3]);
+	double frictionCoefficient_one = atof(arg[4]);
 
 	// set short-range force constant
 	double kn_one = 0.0;
@@ -374,6 +461,8 @@ void PairTriSurf::coeff(int narg, char **arg) {
 		for (int j = MAX(jlo, i); j <= jhi; j++) {
 			bulkmodulus[i][j] = bulkmodulus_one;
 			kn[i][j] = kn_one;
+			wall_temperature[i][j] = wall_temperature_one;
+			frictionCoefficient[i][j] = frictionCoefficient_one;
 			setflag[i][j] = 1;
 			count++;
 		}
@@ -397,6 +486,8 @@ double PairTriSurf::init_one(int i, int j) {
 
 	bulkmodulus[j][i] = bulkmodulus[i][j];
 	kn[j][i] = kn[i][j];
+	wall_temperature[j][i] = wall_temperature[i][j];
+	frictionCoefficient[j][i] = frictionCoefficient[i][j];
 
 	// cutoff = sum of max I,J radii for
 	// dynamic/dynamic & dynamic/frozen interactions, but not frozen/frozen
@@ -406,7 +497,7 @@ double PairTriSurf::init_one(int i, int j) {
 	cutoff = MAX(cutoff, maxrad_dynamic[i] + maxrad_frozen[j]);
 
 	if (comm->me == 0) {
-		printf("cutoff for pair smd/smd/tri_surface = %f\n", cutoff);
+		printf("cutoff for pair smd/tri_surface = %f\n", cutoff);
 	}
 	return cutoff;
 }
@@ -756,8 +847,8 @@ double PairTriSurf::memory_usage() {
  % http:\\www.geometrictools.com/Documentation/DistancePoint3Triangle3.pdf
  */
 
-void PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vector3d TRI0, const Vector3d TRI1,
-		const Vector3d TRI2, Vector3d &CP, double &dist) {
+int PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vector3d TRI0, const Vector3d TRI1, const Vector3d TRI2,
+		Vector3d &CP, double &dist) {
 
 	Vector3d edge0 = TRI1 - TRI0;
 	Vector3d edge1 = TRI2 - TRI0;
@@ -772,6 +863,8 @@ void PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vec
 	double det = a * c - b * b;
 	double s = b * e - c * d;
 	double t = b * d - a * e;
+
+	int region = 1; // region is 0 if closest point is within triangle, 1 if on triangle edges
 
 	if (s + t < det) {
 		if (s < 0.f) {
@@ -794,6 +887,8 @@ void PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vec
 			float invDet = 1.f / det;
 			s *= invDet;
 			t *= invDet;
+			// this should be region 0, i.e., contact point is within triangle
+			region = 0;
 		}
 	} else {
 		if (s < 0.f) {
@@ -828,6 +923,7 @@ void PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vec
 
 	CP = TRI0 + s * edge0 + t * edge1;
 	dist = (CP - sourcePosition).norm();
+	return region;
 
 }
 
@@ -845,6 +941,8 @@ void *PairTriSurf::extract(const char *str, int &i) {
 	//printf("in PairTriSurf::extract\n");
 	if (strcmp(str, "smd/tri_surface/stable_time_increment_ptr") == 0) {
 		return (void *) &stable_time_increment;
+	} else if (strcmp(str, "smd/tri_surface/ncontact_ptr") == 0) {
+		return (void *) ncontact;
 	}
 
 	return NULL;
