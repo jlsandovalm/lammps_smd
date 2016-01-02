@@ -220,7 +220,6 @@ void PairTriSurf::compute(int eflag, int vflag) {
 
 					region = PointTriangleDistance(x4, x1, x2, x3, cp, r);
 
-
 					/*
 					 * penalty force pushes particle away from triangle
 					 */
@@ -244,7 +243,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 						 */
 						cosAngle = x4cp.dot(normal) / r;
 						if (region == 0) {
-							if (fabs(cosAngle) - 1.0 > 1.0e-8) {
+							if (fabs(fabs(cosAngle) - 1.0) > 1.0e-3) {
 								cout << "x4cp   is " << x4cp.transpose() << endl;
 								cout << "normal is " << normal.transpose() << endl;
 								printf("region is %d, expected |cosAngle = 1| but cosAngle is %f\n", region, cosAngle);
@@ -276,16 +275,30 @@ void PairTriSurf::compute(int eflag, int vflag) {
 						evdwl = r * normalForceMagnitude * 0.4e0 * delta; // GCG 25 April: this expression conserves total energy
 						//printf("tri interaction: r = %f, rcut=%f\n", r, r_particle);
 
-
-
-
 						/*
 						 * friction
 						 */
 
 						Vector3d frictionForce;
-						double frictionCoefficient = 0.5;
-						frictionForce = -normalForceMagnitude * frictionCoefficient * TangentialVelocity(particle, tri, x4cp, r);
+						Vector3d vtan = TangentialVelocity(particle, tri, normal);
+
+						/*
+						 * tangentail velocity and normal should be orthognal
+						 */
+
+						if (fabs(vtan.dot(normal)) > 1.0e-3) {
+							cout << "vtan   is " << vtan.transpose() << endl;
+							cout << "normal is " << normal.transpose() << endl;
+							printf("expected angle between tangential (projected in plane velocity) and triangle normal to be close to zero, but cosAngle is %f\n", vtan.dot(normal));
+							error->one(FLERR, "");
+						}
+
+						double vtan_norm = vtan.norm();
+						if (vtan_norm > 1.0e-16) {
+							frictionForce = -normalForceMagnitude * frictionCoefficient[itype][jtype] * vtan / vtan_norm;
+						} else {
+							frictionForce.setZero();
+						}
 
 						/*
 						 * total force = repulsive elastic force along normal
@@ -370,18 +383,13 @@ void PairTriSurf::compute(int eflag, int vflag) {
  compute frictional force between particle and triangle surface
  ------------------------------------------------------------------------- */
 
-Vector3d PairTriSurf::TangentialVelocity(const int particle, const int tri, const Vector3d dx, const double r) {
+Vector3d PairTriSurf::TangentialVelocity(const int particle, const int tri, const Vector3d normal) {
 	double **v = atom->v;
 	Map<const Vector3d> v_particle(v[particle]);
 	Map<const Vector3d> v_tri(v[tri]);
 
 	Vector3d vrel = v_particle - v_tri; // relative translational velocity, points from tri to node, like dx
-
-	double vnnr = vrel.dot(dx);
-
-	Vector3d vnormal = dx * vnnr / (r * r); // normal velocity
-
-	Vector3d vtan = vrel - vnormal; // tangential velocity component
+	Vector3d vtan = vrel - normal * vrel.dot(normal); // tangential velocity component
 
 	return vtan;
 }
@@ -436,7 +444,8 @@ void PairTriSurf::settings(int narg, char **arg) {
 
 void PairTriSurf::coeff(int narg, char **arg) {
 	if (narg != 5)
-		error->all(FLERR, "Incorrect args for pair coefficients. Expected: i, j, contact_stiffness, wall_temperature, friction_coefficient");
+		error->all(FLERR,
+				"Incorrect args for pair coefficients. Expected: i, j, contact_stiffness, wall_temperature, friction_coefficient");
 	if (!allocated)
 		allocate();
 

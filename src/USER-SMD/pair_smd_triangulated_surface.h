@@ -54,7 +54,7 @@ class PairTriSurf : public Pair {
   		Vector3d &CP, double &dist);
   double clamp(const double a, const double min, const double max);
   void *extract(const char *, int &);
-  Vector3d TangentialVelocity(const int, const int, const Vector3d, const double);
+  Vector3d TangentialVelocity(const int, const int, const Vector3d);
 
  protected:
   double **bulkmodulus;
