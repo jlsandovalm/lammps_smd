@@ -46,7 +46,7 @@ variable        l0 equal 1 # initial particle lattice spacing
 lattice         sq ${l0}
 region          box block 0 80 -0.01 13.01 -0.1 0.1 units box
 create_box      2 box
-region          inflow block 0.9 1.8 0 13 EDGE EDGE units box
+region          inflow block 0.9 1.8 1 12 EDGE EDGE units box
 region          constvel block EDGE 10 EDGE EDGE EDGE EDGE units box
 region          outflow block 78.1 EDGE EDGE EDGE EDGE EDGE units box
 
@@ -78,7 +78,7 @@ variable        mpm_cellsize equal 1.0*${l0}
 ####################################################################################################
 # DEFINE BOUNDARY CONDITIONS
 ####################################################################################################
-fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE units box
+#fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE units box
 #fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
 fix 		inflow all smd/inflow rho 1000 radius ${l0} freq 20 region inflow velocity 0.05 &
                 direction x type 1 contact_radius 0.5
@@ -98,7 +98,7 @@ variable 	heat_right equal ${temp_right}*${mass_one}*${Cp}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      hybrid/overlay smd/hertz 1.0 smd/mpm ${mpm_cellsize}
+pair_style      hybrid/overlay smd/hertz 1.0 smd/mpm ${mpm_cellsize} sym_y_+ -0.01 sym_y_- 13.01
 pair_coeff      1 1 smd/mpm *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
 			      *HEAT_CONDUCTION 1.0e4 &

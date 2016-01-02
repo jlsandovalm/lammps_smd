@@ -497,7 +497,7 @@ double PairTriSurf::init_one(int i, int j) {
 	cutoff = MAX(cutoff, maxrad_dynamic[i] + maxrad_frozen[j]);
 
 	if (comm->me == 0) {
-		printf("cutoff for pair smd/tri_surface = %f\n", cutoff);
+		printf("cutoff for pair smd/smd/tri_surface = %f\n", cutoff);
 	}
 	return cutoff;
 }

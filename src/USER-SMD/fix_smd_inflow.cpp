@@ -37,7 +37,7 @@ enum {
 
 #define BIG      1.0e30
 #define EPSILON  1.0e-6
-#define DEBUG false
+#define DEBUG true
 
 /* ---------------------------------------------------------------------- */
 
@@ -326,7 +326,7 @@ void FixSmdInflow::pre_exchange() {
 	double *subhi = domain->subhi;
 
 	if (ntimestep % freq == 0) {
-		//printf("proc %d enerts pre-exchange\n", comm->me);
+		//printf("proc %d enters pre-exchange\n", comm->me);
 
 		double current_time = update->atime;
 		double time_difference = current_time - last_time;
@@ -347,11 +347,11 @@ void FixSmdInflow::pre_exchange() {
 			//return;
 
 		} else {
-//			printf(
-//					"++++ want to insert at timestep %d: time difference since last insertion is %f, particle have travelled distance %f, last insertion height is %f\n",
-//					update->ntimestep, time_difference, travel_distance, last_insertion_height);
-//			printf("velocity travelled distance is %f\n", time_difference * velocity);
-//			printf("displacement excess is %f\n", displacement_excess);
+			printf(
+					"++++ want to insert at timestep %d: time difference since last insertion is %f, particle have travelled distance %f, last insertion height is %f\n",
+					update->ntimestep, time_difference, travel_distance, last_insertion_height);
+			printf("velocity travelled distance is %f\n", time_difference * velocity);
+			printf("displacement excess is %f\n", displacement_excess);
 			last_time = current_time;
 			last_insertion_height = insertion_height - displacement_excess;
 			//printf("proc %d at N=%ld sets last_insertion_height to %f, travel is %f, spacing is %f \n", comm->me, update->ntimestep, last_insertion_height, travel_distance, particle_spacing);
@@ -400,7 +400,7 @@ void FixSmdInflow::pre_exchange() {
 
 			for (k = klo; k <= khi; k++) {
 
-				//printf("k = %d\n", k);
+				printf("k = %d\n", k);
 
 				for (j = jlo; j <= jhi; j++) {
 					for (i = ilo; i <= ihi; i++) {
@@ -466,6 +466,7 @@ void FixSmdInflow::pre_exchange() {
 
 							addnode++;
 							atom->avec->create_atom(basistype[0], x);
+							printf("inserting at position %f %f %f\n", x[0], x[1], x[2]);
 
 							int nlocal = atom->nlocal;
 							//printf("nlocal = %d, vol=%f, mass=%f\n", nlocal, volume_one, mass_one);

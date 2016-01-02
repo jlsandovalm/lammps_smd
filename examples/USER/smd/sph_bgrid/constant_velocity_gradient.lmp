@@ -37,7 +37,7 @@ create_box      1 box
 
 lattice         sq ${l0}
 create_atoms    1 box
-#displace_atoms  all random 0.1 0.0 0 220578 units box
+displace_atoms  all random 0.1 0.0 0 220578 units box
 variable        mpm_cellsize equal 1.0*${l0}
 
 variable        vol_one equal ${l0}^2
@@ -73,8 +73,8 @@ variable        amz equal angmom(all,z) # angular momentum
 
 # time integration
 timestep        ${dt} # set an initial estimate for the zero-th timestep
-#timestep        0
-fix             dtfix all smd/adjust_dt 0.5
+timestep        0
+#fix             dtfix all smd/adjust_dt 0.5
 #fix             gfix  all gravity 0.01 vector 0 1 0
 fix             integration_fix all smd/integrate_mpm FLIP 1# actual integration for equations of motion
 
@@ -93,4 +93,4 @@ thermo_style    custom step ke pe v_etot c_alleint dt v_amz
 #
 velocity        all ramp vx    5 -5 x -5 5 units box
 velocity        all ramp vy    5 -5 y -5 5 units box
-run  100
+run  2

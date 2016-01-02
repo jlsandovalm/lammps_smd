@@ -45,7 +45,7 @@
 #include "smd_material_models.h"
 #include "smd_math.h"
 #include "smd_kernels.h"
-//#include "get_cpu_time.h"
+#include <unsupported/Eigen/MatrixFunctions>
 
 using namespace SMD_Kernels;
 using namespace std;
@@ -77,6 +77,8 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	eos = viscosity = strength = NULL;
 	c0_type = NULL;
 	c0 = NULL;
+	J = NULL;
+	vol = NULL;
 	heat_conduction_coeff = NULL;
 	Lookup = NULL;
 
@@ -99,6 +101,7 @@ PairSmdMpm::PairSmdMpm(LAMMPS *lmp) :
 	symmetry_plane_y_plus_exists = symmetry_plane_y_minus_exists = false;
 	symmetry_plane_x_plus_exists = symmetry_plane_x_minus_exists = false;
 	symmetry_plane_z_plus_exists = symmetry_plane_z_minus_exists = false;
+	noslip_symmetry_plane_y_plus_exists = noslip_symmetry_plane_y_minus_exists = false;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -159,6 +162,8 @@ PairSmdMpm::~PairSmdMpm() {
 		delete[] heat_gradient;
 		delete[] particleHeatRate;
 		delete[] particleHeat;
+		delete[] J;
+		delete[] vol;
 
 	}
 }
@@ -202,42 +207,43 @@ void PairSmdMpm::CreateGrid() {
 
 	if (symmetry_plane_y_plus_exists) {
 		if (miny < symmetry_plane_y_plus_location - 0.1 * cellsize) {
-			error->one(FLERR, "Cannot have particle below y+ symmetry plane.");
+			error->one(FLERR, "Cannot have particle or box boundary below y+ symmetry plane.");
 		}
 		miny = symmetry_plane_y_plus_location;
 	}
 
 	if (symmetry_plane_y_minus_exists) {
 		if (maxy > symmetry_plane_y_minus_location + 0.1 * cellsize) {
-			error->one(FLERR, "Cannot have particle above y- symmetry plane.");
+			printf("maxy is %f, symm plane is at %f\n", maxy, symmetry_plane_y_minus_location + 0.1 * cellsize);
+			error->one(FLERR, "Cannot have particle or box boundary above y- symmetry plane.");
 		}
 		maxy = symmetry_plane_y_minus_location;
 	}
 
 	if (symmetry_plane_x_plus_exists) {
 		if (minx < symmetry_plane_x_plus_location - 0.1 * cellsize) {
-			error->one(FLERR, "Cannot have particle below x+ symmetry plane.");
+			error->one(FLERR, "Cannot have particle or box boundary below x+ symmetry plane.");
 		}
 		minx = symmetry_plane_x_plus_location;
 	}
 
 	if (symmetry_plane_x_minus_exists) {
 		if (maxx > symmetry_plane_x_minus_location + 0.1 * cellsize) {
-			error->one(FLERR, "Cannot have particle above x- symmetry plane.");
+			error->one(FLERR, "Cannot have particle or box boundary above x- symmetry plane.");
 		}
 		maxx = symmetry_plane_x_minus_location;
 	}
 
 	if (symmetry_plane_z_plus_exists) {
 		if (minz < symmetry_plane_z_plus_location - 0.1 * cellsize) {
-			error->warning(FLERR, "Cannot have particle below z+ symmetry plane.");
+			error->warning(FLERR, "Cannot have particle or box boundary below z+ symmetry plane.");
 		}
 		minz = symmetry_plane_z_plus_location;
 	}
 
 	if (symmetry_plane_z_minus_exists) {
 		if (maxz > symmetry_plane_z_minus_location + 0.1 * cellsize) {
-			error->one(FLERR, "Cannot have particle above z- symmetry plane.");
+			error->one(FLERR, "Cannot have particle or box boundary above z- symmetry plane.");
 		}
 		maxz = symmetry_plane_z_minus_location;
 	}
@@ -297,15 +303,15 @@ void PairSmdMpm::PointsToGrid() {
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
-				memset(&gridnodes[ix][iy][iz], 0, sizeof(Gridnode));
+				//memset(&gridnodes[ix][iy][iz], 0, sizeof(Gridnode));
 //
-//				gridnodes[ix][iy][iz].mass = 0.0;
-//				gridnodes[ix][iy][iz].heat = 0.0;
-//				gridnodes[ix][iy][iz].dheat_dt = 0.0;
-//				gridnodes[ix][iy][iz].f.setZero();
-//				gridnodes[ix][iy][iz].v.setZero();
-//				gridnodes[ix][iy][iz].vest.setZero();
-//				gridnodes[ix][iy][iz].isVelocityBC = false;
+				gridnodes[ix][iy][iz].mass = 0.0;
+				gridnodes[ix][iy][iz].heat = 0.0;
+				gridnodes[ix][iy][iz].dheat_dt = 0.0;
+				gridnodes[ix][iy][iz].f.setZero();
+				gridnodes[ix][iy][iz].v.setZero();
+				gridnodes[ix][iy][iz].vest.setZero();
+				gridnodes[ix][iy][iz].isVelocityBC = false;
 			}
 		}
 	}
@@ -625,7 +631,6 @@ void PairSmdMpm::ApplyVelocityBC() {
 void PairSmdMpm::ComputeVelocityGradient() {
 	int *type = atom->type;
 	double **x = atom->x;
-	double *vfrac = atom->vfrac;
 	int nlocal = atom->nlocal;
 	int i, itype;
 
@@ -672,8 +677,8 @@ void PairSmdMpm::ComputeVelocityGradient() {
 									g(1) = wfdy * wfx * wfz;
 									g(2) = wfdz * wfx * wfy;
 
-									velocity_gradient += gridnodes[jx][jy][jz].vest * g.transpose();
-									//velocity_gradient += gridnodes[jx][jy][jz].v * g.transpose();
+									velocity_gradient += gridnodes[jx][jy][jz].vest * g.transpose(); // this is for USF
+											//velocity_gradient += gridnodes[jx][jy][jz].v * g.transpose(); // this is for USL
 									particle_heat_gradient += gridnodes[jx][jy][jz].heat * g; // units: energy / distance
 								}
 							}
@@ -691,7 +696,6 @@ void PairSmdMpm::ComputeVelocityGradient() {
 void PairSmdMpm::ComputeGridForces() {
 	double **x = atom->x;
 	double **f = atom->f;
-	double *vfrac = atom->vfrac;
 	double *rmass = atom->rmass;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
@@ -716,8 +720,8 @@ void PairSmdMpm::ComputeGridForces() {
 			iy = (int) py_shifted_scaled;
 			iz = (int) pz_shifted_scaled;
 
-			scaledStress = -vfrac[i] * stressTensor[i];
-			scaled_temperature_gradient = -vfrac[i] * heat_conduction_coeff[itype] * heat_gradient[i]
+			scaledStress = -vol[i] * stressTensor[i];
+			scaled_temperature_gradient = -vol[i] * heat_conduction_coeff[itype] * heat_gradient[i]
 					/ (Lookup[HEAT_CAPACITY][itype] * rmass[i]); // units: volume * Temperature  / distance
 			otherForces << f[i][0], f[i][1], f[i][2];
 
@@ -790,9 +794,105 @@ void PairSmdMpm::UpdateGridVelocities() {
 	}
 }
 
-/*
- * update grid velocities using grid forces
- */
+void PairSmdMpm::ApplyNoSlipSymmetryBC() {
+
+	int iy, ix, iz, source, target;
+	double px_shifted, py_shifted, pz_shifted;
+
+	if (noslip_symmetry_plane_y_plus_exists) {
+
+		// find y grid index corresponding location of y plus symmetry plane
+		py_shifted = noslip_symmetry_plane_y_plus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
+		iy = icellsize * py_shifted;
+
+		if ((iy < 0) || (iy >= grid_ny)) {
+			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
+			error->one(FLERR, "");
+		}
+
+		for (ix = 0; ix < grid_nx; ix++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+
+				if (ix * cellsize > 40.0) {
+
+					// set all velocities to zero in the symmetry plane -- no slip condition
+					gridnodes[ix][iy][iz].v.setZero();
+					gridnodes[ix][iy][iz].vest.setZero();
+					gridnodes[ix][iy][iz].f.setZero();
+
+					// mirror velocity of nodes on the +-side to the -side
+
+					source = iy + 1;
+					target = iy - 1;
+
+					// check that cell indices are within bounds
+					if ((source < 0) || (source >= grid_ny)) {
+						printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
+						error->one(FLERR, "");
+					}
+
+					if ((target < 0) || (target >= grid_ny)) {
+						printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
+						error->one(FLERR, "");
+					}
+
+					// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+					gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
+					gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
+					gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
+					gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
+				}
+
+			}
+		}
+	}
+
+	if (noslip_symmetry_plane_y_minus_exists) {
+
+		// find y grid index corresponding location of y plus symmetry plane
+		py_shifted = noslip_symmetry_plane_y_minus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
+		iy = icellsize * py_shifted;
+
+		if ((iy < 0) || (iy >= grid_ny)) {
+			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
+			error->one(FLERR, "");
+		}
+
+		for (ix = 0; ix < grid_nx; ix++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+
+				//if (ix * cellsize > 11.0) {
+				// set all velocities to zero in the symmetry plane -- no slip condition
+				gridnodes[ix][iy][iz].v.setZero();
+				gridnodes[ix][iy][iz].vest.setZero();
+				//gridnodes[ix][iy][iz].f.setZero();
+
+				// mirror velocity of nodes on the +-side to the -side
+				source = iy - 1;
+				target = iy + 1;
+
+				// check that cell indices are within bounds
+				if ((source < 0) || (source >= grid_ny)) {
+					printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
+					error->one(FLERR, "");
+				}
+
+				if ((target < 0) || (target >= grid_ny)) {
+					printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
+					error->one(FLERR, "");
+				}
+
+				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+				gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
+				gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
+				gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
+				gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
+				//}
+
+			}
+		}
+	}
+}
 
 void PairSmdMpm::ApplySymmetryBC(int mode) {
 
@@ -1242,40 +1342,31 @@ void PairSmdMpm::UpdateDeformationGradient() {
 	 * this is currently deactivated because the smd_data_9 array is used for storing
 	 * the APIC correction matrix Bp
 	 */
-	error->one(FLERR, "should not be here");
-
+	//error->one(FLERR, "should not be here");
 // given the velocity gradient, update the deformation gradient
 	double **smd_data_9 = atom->smd_data_9;
+	double *vol0 = atom->vfrac;
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
 	int i, itype;
 	Matrix3d F, Fincr, eye;
 	eye.setIdentity();
 
-// transfer particle velocities to grid nodes
 	for (i = 0; i < nlocal; i++) {
 
 		itype = type[i];
 		if (setflag[itype][itype]) {
 
-			F(0, 0) = smd_data_9[i][0];
-			F(0, 1) = smd_data_9[i][1];
-			F(0, 2) = smd_data_9[i][2];
+			/*
+			 * compute deformation gradient using full exponential propagation
+			 */
 
-			F(1, 0) = smd_data_9[i][3];
-			F(1, 1) = smd_data_9[i][4];
-			F(1, 2) = smd_data_9[i][5];
+			Fincr = (update->dt * L[i]).exp();
+			F = Fincr * Map<Matrix3d>(smd_data_9[i]);
+			J[i] = F.determinant();
+			vol[i] = vol0[i] * J[i];
 
-			F(2, 0) = smd_data_9[i][6];
-			F(2, 1) = smd_data_9[i][7];
-			F(2, 2) = smd_data_9[i][8];
-
-			//cout << "this is F befor update" << endl << F << endl;
-
-			Fincr = eye + 1.0 * update->dt * L[i];
-			F = Fincr * F;
-
-			//cout << "this is F" << endl << F << endl;
+			//cout << "this is F after update" << endl << F << endl;
 
 			smd_data_9[i][0] = F(0, 0);
 			smd_data_9[i][1] = F(0, 1);
@@ -1335,6 +1426,10 @@ void PairSmdMpm::compute(int eflag, int vflag) {
 		particleHeat = new double[nmax];
 		delete[] particleHeatRate;
 		particleHeatRate = new double[nmax];
+		delete[] J;
+		J = new double[nmax];
+		delete[] vol;
+		vol = new double[nmax];
 	}
 
 	USF();
@@ -1351,10 +1446,12 @@ void PairSmdMpm::USF() {
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
+	ApplyNoSlipSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_Gradients -= MPI_Wtime();
 	ComputeVelocityGradient(); // using current velocities
+	UpdateDeformationGradient();
 	timeone_Gradients += MPI_Wtime();
 
 	timeone_MaterialModel -= MPI_Wtime();
@@ -1373,6 +1470,7 @@ void PairSmdMpm::USF() {
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
+	ApplyNoSlipSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_GridToPoints -= MPI_Wtime();
@@ -1387,56 +1485,23 @@ void PairSmdMpm::USL() {
 	PointsToGrid();
 	GetStress();
 	ComputeGridForces();
+	ApplySymmetryBC(COPY_VELOCITIES);
 	UpdateGridVelocities();
 	GridToPoints();
 
 	AdvanceParticles();
 	// -- compute new grid velocities from updated particle positions
 	ScatterVelocities();
-
+	ApplySymmetryBC(COPY_VELOCITIES);
 	ComputeVelocityGradient();
 	AssembleStressTensor();
 	AdvanceParticlesEnergy();
 	DestroyGrid();
 }
 
-void PairSmdMpm::MUSL() {
-	//MUSL
-
-	CreateGrid();
-	PointsToGrid();
-
-	// first 1/2 step update of stress
-	ComputeVelocityGradient();
-	GetStress();
-	AssembleStressTensor();
-	ComputeGridForces();
-	UpdateGridVelocities();
-
-	// clear grid forces
-	int ix, iy, iz;
-	for (ix = 0; ix < grid_nx; ix++) {
-		for (iy = 0; iy < grid_ny; iy++) {
-			for (iz = 0; iz < grid_nz; iz++) {
-				gridnodes[ix][iy][iz].f.setZero();
-			}
-		}
-	}
-
-	// second 1/2 step update of stress
-	ComputeVelocityGradient();
-	AssembleStressTensor();
-	ComputeGridForces();
-	UpdateGridVelocities();
-
-	GridToPoints();
-	DestroyGrid();
-}
-
 void PairSmdMpm::UpdateStress() {
 	double **tlsph_stress = atom->smd_stress;
 	double *de = atom->de;
-	double *vfrac = atom->vfrac;
 	int *type = atom->type;
 	Matrix3d D, eye, d_dev, stressRate, oldStress, newStress;
 	double d_iso;
@@ -1453,7 +1518,6 @@ void PairSmdMpm::UpdateStress() {
 			D = 0.5 * (L[i] + L[i].transpose());
 			d_dev = Deviator(D);
 			d_iso = D.trace();
-			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
 
 			stressRate = Lookup[BULK_MODULUS][itype] * d_iso * eye + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
 			stressTensor[i] += update->dt * stressRate;
@@ -1478,7 +1542,7 @@ void PairSmdMpm::UpdateStress() {
 			 * potential energy
 			 */
 
-			de[i] += vfrac[i] * (stressTensor[i].cwiseProduct(D)).sum();
+			de[i] += vol[i] * (stressTensor[i].cwiseProduct(D)).sum();
 		}
 	}
 
@@ -1512,7 +1576,6 @@ void PairSmdMpm::GetStress() {
  viscosity contributions.
  ------------------------------------------------------------------------- */
 void PairSmdMpm::AssembleStressTensor() {
-	double *vfrac = atom->vfrac;
 	double *rmass = atom->rmass;
 	double *eff_plastic_strain = atom->eff_plastic_strain;
 	double **tlsph_stress = atom->smd_stress;
@@ -1528,7 +1591,7 @@ void PairSmdMpm::AssembleStressTensor() {
 	Matrix3d sigmaInitial_dev, d_dev, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
 	double plastic_strain_increment, yieldStress;
 	double dt = FACTOR * update->dt;
-	double vol, newPressure;
+	double newPressure;
 	double G_eff = 0.0; // effective shear modulus
 	double K_eff; // effective bulk modulus
 	double M, p_wave_speed;
@@ -1550,10 +1613,8 @@ void PairSmdMpm::AssembleStressTensor() {
 			D = 0.5 * (L[i] + L[i].transpose());
 
 			d_iso = D.trace();
-			vfrac[i] += update->dt * vfrac[i] * d_iso; // update the volume
 
-			vol = vfrac[i];
-			rho = rmass[i] / vol;
+			rho = rmass[i] / vol[i];
 
 			switch (eos[itype]) {
 			default:
@@ -1570,7 +1631,7 @@ void PairSmdMpm::AssembleStressTensor() {
 
 				break;
 			case EOS_PERFECT_GAS:
-				PerfectGasEOS(Lookup[EOS_PERFECT_GAS_GAMMA][itype], vol, rmass[i], e[i], newPressure, c0[i]);
+				PerfectGasEOS(Lookup[EOS_PERFECT_GAS_GAMMA][itype], vol[i], rmass[i], e[i], newPressure, c0[i]);
 				break;
 			case EOS_LINEAR:
 				newPressure = Lookup[BULK_MODULUS][itype] * (rho / Lookup[REFERENCE_DENSITY][itype] - 1.0);
@@ -1616,6 +1677,8 @@ void PairSmdMpm::AssembleStressTensor() {
 
 					LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
 							newStressDeviator, stressRateDev, plastic_strain_increment);
+
+					// this is for MPM extrusion
 
 					if (x[i][0] > -65.0) {
 						newStressDeviator.setZero();
@@ -1686,7 +1749,7 @@ void PairSmdMpm::AssembleStressTensor() {
 			 * elastic energy rate
 			 */
 
-			de[i] += FACTOR * vol * (stressTensor[i].cwiseProduct(D)).sum();
+			de[i] += FACTOR * vol[i] * (stressTensor[i].cwiseProduct(D)).sum();
 
 		}
 		// end if (setflag[itype][itype] == 1)
@@ -1848,6 +1911,30 @@ void PairSmdMpm::settings(int narg, char **arg) {
 			if (comm->me == 0) {
 				printf("... -z symmetry plane at z = %f\n", symmetry_plane_z_minus_location);
 			}
+		} else if (strcmp(arg[iarg], "noslip_sym_y_+") == 0) {
+			noslip_symmetry_plane_y_plus_exists = true;
+
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected float following noslip_sym_y_+ keyword");
+			}
+			noslip_symmetry_plane_y_plus_location = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... NOSLIP +y symmetry plane at y = %f\n", noslip_symmetry_plane_y_plus_location);
+			}
+		} else if (strcmp(arg[iarg], "noslip_sym_y_-") == 0) {
+			noslip_symmetry_plane_y_minus_exists = true;
+
+			iarg++;
+			if (iarg == narg) {
+				error->all(FLERR, "expected float following noslip_sym_y_- keyword");
+			}
+			noslip_symmetry_plane_y_minus_location = force->numeric(FLERR, arg[iarg]);
+
+			if (comm->me == 0) {
+				printf("... NOSLIP_-y symmetry plane at y = %f\n", noslip_symmetry_plane_y_minus_location);
+			}
 		} else {
 			char msg[128];
 			sprintf(msg, "Illegal keyword for pair smd/mpm: %s\n", arg[iarg]);
@@ -1917,7 +2004,7 @@ void PairSmdMpm::coeff(int narg, char **arg) {
 			}
 		}
 
-		//printf("keyword following *COMMON is %s\n", arg[iNextKwd]);
+//printf("keyword following *COMMON is %s\n", arg[iNextKwd]);
 
 		if (iNextKwd < 0) {
 			sprintf(str, "no *KEYWORD terminates *COMMON");
@@ -2326,7 +2413,6 @@ double PairSmdMpm::memory_usage() {
 /* ---------------------------------------------------------------------- */
 
 int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, int *pbc) {
-	double *vfrac = atom->vfrac;
 	double **f = atom->f;
 	int i, j, m;
 
@@ -2334,7 +2420,7 @@ int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, i
 	m = 0;
 	for (i = 0; i < n; i++) {
 		j = list[i];
-		buf[m++] = vfrac[j];
+		buf[m++] = vol[j];
 
 		buf[m++] = stressTensor[j](0, 0); // pack symmetric stress tensor
 		buf[m++] = stressTensor[j](1, 1);
@@ -2354,14 +2440,13 @@ int PairSmdMpm::pack_forward_comm(int n, int *list, double *buf, int pbc_flag, i
 /* ---------------------------------------------------------------------- */
 
 void PairSmdMpm::unpack_forward_comm(int n, int first, double *buf) {
-	double *vfrac = atom->vfrac;
 	double **f = atom->f;
 	int i, m, last;
 
 	m = 0;
 	last = first + n;
 	for (i = first; i < last; i++) {
-		vfrac[i] = buf[m++];
+		vol[i] = buf[m++];
 
 		stressTensor[i](0, 0) = buf[m++];
 		stressTensor[i](1, 1) = buf[m++];
@@ -2462,6 +2547,99 @@ void PairSmdMpm::SolveHeatEquation() {
 
 }
 
+void PairSmdMpm::ComputeGridGradients() {
+	int ix, iy, iz;
+	for (ix = 1; ix < grid_nx - 1; ix++) {
+		for (iy = 1; iy < grid_ny - 1; iy++) {
+			for (iz = 1; iz < grid_nz - 1; iz++) {
+
+				//if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+				// central differences
+
+//				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+//
+//					if ((gridnodes[ix + 1][iy][iz].mass > MASS_CUTOFF) && (gridnodes[ix - 1][iy][iz].mass > MASS_CUTOFF)) {
+//						gridnodes[ix][iy][iz].Lxx = 0.5 * icellsize
+//								* (gridnodes[ix + 1][iy][iz].v(0) - gridnodes[ix - 1][iy][iz].v(0));
+//					}
+//
+//					gridnodes[ix][iy][iz].Lyy = icellsize
+//							* (gridnodes[ix][iy + 1][iz].v(1) - 2.0 * gridnodes[ix][iy][iz].v(1) + gridnodes[ix][iy - 1][iz].v(1));
+//
+//					gridnodes[ix][iy][iz].Lxy = icellsize
+//							* (gridnodes[ix + 1][iy][iz].v(1) - 2.0 * gridnodes[ix][iy][iz].v(1) + gridnodes[ix - 1][iy][iz].v(1));
+//					gridnodes[ix][iy][iz].Lyx = icellsize
+//							* (gridnodes[ix][iy + 1][iz].v(0) - 2.0 * gridnodes[ix][iy][iz].v(0) + gridnodes[ix][iy - 1][iz].v(0));
+//
+//				}
+
+			}
+		}
+	}
+}
+
+void PairSmdMpm::GridGradientsToParticles() {
+	double **x = atom->x;
+	int *type = atom->type;
+	int nlocal = atom->nlocal;
+	int i, itype;
+	int ix, iy, iz, jx, jy, jz;
+	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
+	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf;
+	double delz_scaled, delz_scaled_abs, wfz;
+
+	for (i = 0; i < nlocal; i++) {
+
+		L[i].setZero();
+
+		itype = type[i];
+		if (setflag[itype][itype]) {
+
+			px_shifted = x[i][0] - min_ix * cellsize + GRID_OFFSET * cellsize;
+			py_shifted = x[i][1] - min_iy * cellsize + GRID_OFFSET * cellsize;
+			pz_shifted = x[i][2] - min_iz * cellsize + GRID_OFFSET * cellsize;
+
+			ix = icellsize * px_shifted;
+			iy = icellsize * py_shifted;
+			iz = icellsize * pz_shifted;
+
+			for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
+
+				delz_scaled = pz_shifted * icellsize - 1.0 * jz;
+				delz_scaled_abs = fabs(delz_scaled);
+				wfz = DisneyKernel(delz_scaled_abs);
+				if (wfz > 0.0) {
+
+					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
+
+						dely_scaled = py_shifted * icellsize - 1.0 * jy;
+						dely_scaled_abs = fabs(dely_scaled);
+						wfy = DisneyKernel(dely_scaled_abs);
+						if (wfy > 0.0) {
+
+							for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
+
+								delx_scaled = px_shifted * icellsize - 1.0 * jx;
+								delx_scaled_abs = fabs(delx_scaled);
+								wfx = DisneyKernel(delx_scaled_abs);
+								if (wfx > 0.0) {
+
+									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
+
+//									L[i](0, 0) += wf * gridnodes[jx][jy][jz].Lxx;
+//									L[i](1, 1) += wf * gridnodes[jx][jy][jz].Lyy;
+//									L[i](0, 1) += wf * gridnodes[jx][jy][jz].Lxy;
+//									L[i](1, 0) += wf * gridnodes[jx][jy][jz].Lyx;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 /*
  * do time integration of particles
  */
@@ -2472,8 +2650,6 @@ void PairSmdMpm::AdvanceParticles() {
 	int i;
 	double **x = atom->x;
 	double **v = atom->v;
-	double *e = atom->e;
-	double *de = atom->de;
 
 	for (i = 0; i < nlocal; i++) {
 		v[i][0] += update->dt * particleAccelerations[i](0);
@@ -2501,3 +2677,41 @@ void PairSmdMpm::AdvanceParticlesEnergy() {
 
 }
 
+void PairSmdMpm::DumpGrid() {
+
+	printf("... dumping grid\n");
+
+	int ix, iy, iz;
+
+	int count = 0;
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+					count++;
+				}
+
+			}
+		}
+	}
+
+	FILE * f;
+	f = fopen("grid.dump", "w");
+
+	fprintf(f, "%d\n\n", count);
+
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+//					fprintf(f, "X %f %f %f %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].v(0),
+					//gridnodes[ix][iy][iz].v(1), gridnodes[ix][iy][iz].v(2), gridnodes[ix][iy][iz].Lxx);
+				}
+
+			}
+		}
+	}
+
+	fclose(f);
+
+}

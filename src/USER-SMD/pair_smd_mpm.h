@@ -79,6 +79,11 @@ public:
 	void ApplySymmetryBC(int mode);
 	void AdvanceParticles();
 	void AdvanceParticlesEnergy();
+	void ComputeGridGradients();
+	void DumpGrid();
+	void GridGradientsToParticles();
+	void ApplyNoSlipSymmetryBC();
+
 
 protected:
 
@@ -96,6 +101,8 @@ protected:
 	int *numNeighs;
 	double *c0;
 	double *particleHeat, *particleHeatRate;
+	double *J; // determinant of deformation gradient
+	double *vol; // current volume
 	Matrix3d *stressTensor, *L, *F;
 	Vector3d *heat_gradient;
 
@@ -158,10 +165,15 @@ private:
 	double timeone_PointstoGrid, timeone_Gradients, timeone_MaterialModel, timeone_GridForces, timeone_UpdateGrid,
 			timeone_GridToPoints, timeone_SymmetryBC;
 
+	// symmetry planes
 	double symmetry_plane_y_plus_location, symmetry_plane_y_minus_location, symmetry_plane_x_plus_location,
 			symmetry_plane_x_minus_location, symmetry_plane_z_plus_location, symmetry_plane_z_minus_location;
 	bool symmetry_plane_y_plus_exists, symmetry_plane_y_minus_exists, symmetry_plane_x_plus_exists, symmetry_plane_x_minus_exists,
 			symmetry_plane_z_plus_exists, symmetry_plane_z_minus_exists;
+
+	// NO SLIP symmetry planes
+	bool noslip_symmetry_plane_y_plus_exists, noslip_symmetry_plane_y_minus_exists;
+	double noslip_symmetry_plane_y_plus_location, noslip_symmetry_plane_y_minus_location;
 
 };
 

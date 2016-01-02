@@ -485,6 +485,11 @@ void PairTlsph::ComputeForces(int eflag, int vflag) {
 			vi(idim) = v[i][idim];
 		}
 
+		double max_pairwise_energy_release_rate = 0.0;
+		int average_energy_release_rate_count = 0;
+		double average_energy_release_rate = 0.0;
+		int fail_this_bond = -1;
+
 		for (jj = 0; jj < jnum; jj++) {
 			if (partner[i][jj] == 0)
 				continue;
@@ -643,15 +648,51 @@ void PairTlsph::ComputeForces(int eflag, int vflag) {
 
 			if (failureModel[itype].failure_energy_release_rate) {
 
-				// integration approach
-				energy_per_bond[i][jj] += update->dt * f_stress.dot(dv) / (voli * volj);
-				double Vic = (2.0 / 3.0) * h * h * h; // interaction volume for 2d plane strain
-				double critical_energy_per_bond = Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype] / (2.0 * Vic);
+				//if (r > r0) { // only fail in tension
 
-				if (energy_per_bond[i][jj] > critical_energy_per_bond) {
-					//degradation_ij[i][jj] = 1.0;
-					partner[i][jj] = 0;
+				// get current displacement vector along bond axis
+				Vector3d current_bond_displacement_vector;
+				current_bond_displacement_vector = update->dt * dv.dot(dx) * dx / (r * r);
+				energy_per_bond[i][jj] += f_stress.dot(current_bond_displacement_vector) / (voli * volj);
+				double Vic = (2.0 / 3.0) * h * h * h; // interaction volume for 2d plane strain
+				double this_energy_release_rate = 2.0 * energy_per_bond[i][jj] * Vic;
+
+				if ((dv.dot(dx) > 0.0) && (r > r0)) {
+					if (this_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
+						partner[i][jj] = 0;
+					}
 				}
+
+				// integration approach
+//				if (dv.dot(dx0) > 0.0) {
+//					energy_per_bond[i][jj] += update->dt * sumForces.dot(dv) / (voli * volj);
+//					double Vic = (2.0 / 3.0) * h * h * h; // interaction volume for 2d plane strain
+//					double this_energy_release_rate = 2.0 * energy_per_bond[i][jj] * Vic;
+//					if (this_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
+//						partner[i][jj] = 0;
+//					}
+//				}
+//
+//				// sum all energy release rates to build average
+//				average_energy_release_rate += this_energy_release_rate;
+//				average_energy_release_rate_count++;
+//				if (this_energy_release_rate > max_pairwise_energy_release_rate) {
+//					max_pairwise_energy_release_rate = this_energy_release_rate;
+//					fail_this_bond = jj;
+//				}
+				//}
+
+//				if (r > r0) {
+//					// peridynamic linear elastic bond energy
+//					double c = 4.5 * Lookup[BULK_MODULUS][itype] / (3.14 * h * h);
+//					double s = (r - r0) / r0;
+//					double Vic = (2.0 / 3.0) * h * h * h;
+//					double this_energy_release_rate = 0.5 * c * s * s * Vic;
+//					if (this_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
+//						partner[i][jj] = 0;
+//					}
+//				}
+
 			}
 
 			if (failureModel[itype].integration_point_wise) {
@@ -692,9 +733,43 @@ void PairTlsph::ComputeForces(int eflag, int vflag) {
 			hourglass_error[i] /= shepardWeight;
 		}
 
+		// fail bonds
+//		if (failureModel[itype].failure_energy_release_rate) {
+//			if (npartner[i] > 0) {
+//				average_energy_release_rate /= npartner[i]; // normalize average
+//				if (average_energy_release_rate > Lookup[CRITICAL_ENERGY_RELEASE_RATE][itype]) {
+//					if (fail_this_bond < 0) {
+//						error->warning(FLERR, "fail_this_bond is negative");
+//						printf("max pairwise energy release rate is %f, count is %d\n", max_pairwise_energy_release_rate,
+//								average_energy_release_rate_count);
+//						printf("fail this bond: %d\n", fail_this_bond);
+//						printf("----------------------------\n");
+//
+//					} else {
+//						j = atom->map(partner[i][fail_this_bond]);
+//						if (j > 0) {
+//							x0j << x0[j][0], x0[j][1], x0[j][2];
+//							xj << x[j][0], x[j][1], x[j][2];
+//							vj << v[j][0], v[j][1], v[j][2];
+//
+//							dx = xj - xi;
+//							r = dx.norm(); // current distance
+//
+//							dx0 = x0j - x0i;
+//							r0 = dx0.norm(); // current distance
+//
+//							if (r > r0) {
+//								partner[i][fail_this_bond] = 0; // only fail in tension
+//							}
+//						}
+//					}
+//				}
+//			}
+//		}
+
 	} // end loop over i
 
-	//printf("update_flag in pair style  =%d\n", updateFlag);
+//printf("update_flag in pair style  =%d\n", updateFlag);
 
 	if (vflag_fdotr)
 		virial_fdotr_compute();
@@ -1268,33 +1343,38 @@ void PairTlsph::coeff(int narg, char **arg) {
 			generalMaterialModel[itype].anisoMaterialModel.G13 = force->numeric(FLERR, arg[ioffset + 8]);
 			generalMaterialModel[itype].anisoMaterialModel.G23 = force->numeric(FLERR, arg[ioffset + 9]);
 
-			double nu21 = generalMaterialModel[itype].anisoMaterialModel.v12 * generalMaterialModel[itype].anisoMaterialModel.E2 / generalMaterialModel[itype].anisoMaterialModel.E1;
-			double nu31 = generalMaterialModel[itype].anisoMaterialModel.v13 * generalMaterialModel[itype].anisoMaterialModel.E3 / generalMaterialModel[itype].anisoMaterialModel.E1;
-			double nu32 = generalMaterialModel[itype].anisoMaterialModel.v23 * generalMaterialModel[itype].anisoMaterialModel.E3 / generalMaterialModel[itype].anisoMaterialModel.E2;
+			double nu21 = generalMaterialModel[itype].anisoMaterialModel.v12 * generalMaterialModel[itype].anisoMaterialModel.E2
+					/ generalMaterialModel[itype].anisoMaterialModel.E1;
+			double nu31 = generalMaterialModel[itype].anisoMaterialModel.v13 * generalMaterialModel[itype].anisoMaterialModel.E3
+					/ generalMaterialModel[itype].anisoMaterialModel.E1;
+			double nu32 = generalMaterialModel[itype].anisoMaterialModel.v23 * generalMaterialModel[itype].anisoMaterialModel.E3
+					/ generalMaterialModel[itype].anisoMaterialModel.E2;
 
+			generalMaterialModel[itype].anisoMaterialModel.S(0, 0) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.E1;
+			generalMaterialModel[itype].anisoMaterialModel.S(0, 1) = -nu21 / generalMaterialModel[itype].anisoMaterialModel.E2;
+			generalMaterialModel[itype].anisoMaterialModel.S(0, 2) = -nu31 / generalMaterialModel[itype].anisoMaterialModel.E3;
 
-			generalMaterialModel[itype].anisoMaterialModel.S(0,0) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.E1;
-			generalMaterialModel[itype].anisoMaterialModel.S(0,1) = -nu21 / generalMaterialModel[itype].anisoMaterialModel.E2;
-			generalMaterialModel[itype].anisoMaterialModel.S(0,2) = -nu31 / generalMaterialModel[itype].anisoMaterialModel.E3;
+			generalMaterialModel[itype].anisoMaterialModel.S(1, 0) = -generalMaterialModel[itype].anisoMaterialModel.v12
+					/ generalMaterialModel[itype].anisoMaterialModel.E1;
+			generalMaterialModel[itype].anisoMaterialModel.S(1, 1) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.E2;
+			generalMaterialModel[itype].anisoMaterialModel.S(1, 2) = -nu32 / generalMaterialModel[itype].anisoMaterialModel.E3;
 
-			generalMaterialModel[itype].anisoMaterialModel.S(1,0) = -generalMaterialModel[itype].anisoMaterialModel.v12 / generalMaterialModel[itype].anisoMaterialModel.E1;
-			generalMaterialModel[itype].anisoMaterialModel.S(1,1) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.E2;
-			generalMaterialModel[itype].anisoMaterialModel.S(1,2) = -nu32 / generalMaterialModel[itype].anisoMaterialModel.E3;
+			generalMaterialModel[itype].anisoMaterialModel.S(2, 0) = -generalMaterialModel[itype].anisoMaterialModel.v13
+					/ generalMaterialModel[itype].anisoMaterialModel.E1;
+			generalMaterialModel[itype].anisoMaterialModel.S(2, 1) = -generalMaterialModel[itype].anisoMaterialModel.v23
+					/ generalMaterialModel[itype].anisoMaterialModel.E2;
+			generalMaterialModel[itype].anisoMaterialModel.S(2, 2) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.E3;
 
-			generalMaterialModel[itype].anisoMaterialModel.S(2,0) = -generalMaterialModel[itype].anisoMaterialModel.v13 / generalMaterialModel[itype].anisoMaterialModel.E1;
-			generalMaterialModel[itype].anisoMaterialModel.S(2,1) = -generalMaterialModel[itype].anisoMaterialModel.v23 / generalMaterialModel[itype].anisoMaterialModel.E2;
-			generalMaterialModel[itype].anisoMaterialModel.S(2,2) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.E3;
-
-			generalMaterialModel[itype].anisoMaterialModel.S(3,3) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.G23;
-			generalMaterialModel[itype].anisoMaterialModel.S(4,4) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.G13;
-			generalMaterialModel[itype].anisoMaterialModel.S(5,5) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.G12;
+			generalMaterialModel[itype].anisoMaterialModel.S(3, 3) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.G23;
+			generalMaterialModel[itype].anisoMaterialModel.S(4, 4) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.G13;
+			generalMaterialModel[itype].anisoMaterialModel.S(5, 5) = 1.0 / generalMaterialModel[itype].anisoMaterialModel.G12;
 
 			generalMaterialModel[itype].anisoMaterialModel.C = generalMaterialModel[itype].anisoMaterialModel.S.inverse();
-			cout << "this is the stiffness matrix for orthotropic elasticity" << endl << generalMaterialModel[itype].anisoMaterialModel.C << endl;
+			cout << "this is the stiffness matrix for orthotropic elasticity" << endl
+					<< generalMaterialModel[itype].anisoMaterialModel.C << endl;
 			if (generalMaterialModel[itype].anisoMaterialModel.S.determinant() <= 0.0) {
 				error->one(FLERR, "determinant of compliance matrix is <= 0");
 			}
-
 
 			if (comm->me == 0) {
 				printf("%60s\n", "Orthotropic linear elastic strength model");
@@ -2172,7 +2252,8 @@ void PairTlsph::ComputeStressDeviator(const int i, const Matrix3d sigmaInitial_d
 				sigmaInitial_dev, d_dev, sigmaFinal_dev, sigma_dev_rate, plastic_strain_increment);
 		break;
 	case STRENGTH_LINEAR_ORTHOTROPIC:
-		StrengthLinearOrthotropic(generalMaterialModel[itype].anisoMaterialModel.C, sigmaInitial_dev, D[i], dt, sigmaFinal_dev, sigma_dev_rate);
+		StrengthLinearOrthotropic(generalMaterialModel[itype].anisoMaterialModel.C, sigmaInitial_dev, D[i], dt, sigmaFinal_dev,
+				sigma_dev_rate);
 		break;
 	case STRENGTH_NONE:
 		sigmaFinal_dev.setZero();

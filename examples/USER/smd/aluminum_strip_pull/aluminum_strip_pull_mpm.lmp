@@ -11,7 +11,7 @@
 # MATERIAL PARAMETERS
 ####################################################################################################
 variable 	E equal 70.0 # Young's modulus
-variable 	nu equal 0.45 # Poisson ratio
+variable 	nu equal 0.3 # Poisson ratio
 variable 	rho equal 1 # initial mass density
 variable        q1 equal 0.56 # standard artificial viscosity linear coefficient
 variable        q2 equal 0.0  # standard artificial viscosity quadratic coefficient
@@ -21,7 +21,7 @@ variable        cp equal 1.0 # heat capacity of material -- not used here
 
 variable        G equal ${E}/(2*(1+${nu}))
 variable        K equal ${E}/(3*(1-2*${nu}))
-variable        sigy equal 0.3
+variable        sigy equal 3000.3
 variable        c0 equal sqrt(${K}/${rho})
 
 ####################################################################################################
@@ -33,7 +33,7 @@ boundary        sm sm p # simulation box boundaries
 atom_style      smd
 atom_modify	map array
 comm_modify     vel yes
-neigh_modify    every 10 delay 0 check yes # re-build neighbor list every 10 steps
+neigh_modify    every 1 delay 0 check yes # re-build neighbor list every 10 steps
 newton          off
 
 ####################################################################################################
@@ -61,18 +61,16 @@ set             group all mol 1
 ####################################################################################################
 # DEFINE VELOCITY BOUNDARY CONDITIONS
 ####################################################################################################
-variable 	vel0 equal 0.2 # pull velocity
+variable 	vel0 equal 0.02 # pull velocity
 region 		top block EDGE EDGE 20 EDGE EDGE EDGE units lattice
 region 		bot block EDGE EDGE EDGE -19 EDGE EDGE units lattice
 group           top region top
 group           bot region bot
-group           integrate subtract all top bot
-#variable        vel_up equal ${vel0}*(1.0-exp(-0.01*time))
-#variable        vel_down equal -v_vel_up
-#fix             veltop_fix top smd/setvelocity 0 v_vel_up 0
-#fix             velbot_fix bot smd/setvelocity 0 v_vel_down 0
-velocity        top set 0 ${vel0} 0 units box
-velocity        bot set 0 -${vel0} 0 units box
+#variable        cvel equal ramp(0.0,${vel0})
+variable        cvel equal ${vel0}
+variable        ncvel equal -v_cvel
+fix             top_fix top smd/setvelocity 0 v_cvel 0
+fix             bot_fix bot smd/setvelocity 0 v_ncvel 0
 set             group top mol 1000
 set             group bot mol 1000
 
@@ -81,7 +79,7 @@ set             group bot mol 1000
 # We use polynomial EOS for the pressure and the Johnson Cook strength model
 # An integration point fails (cannot support tension anymore) if the plastic strain exceeds 0.5.
 ####################################################################################################
-pair_style      smd/mpm 1.0
+pair_style      smd/mpm 2.0
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
                 *EOS_LINEAR &
                 *STRENGTH_LINEAR_PLASTIC ${G} ${sigy} 0 &
@@ -92,8 +90,8 @@ pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
 ####################################################################################################
 variable dtcfl equal ${l0}/${c0}
 timestep  ${dtcfl}
-fix             dtfix all smd/adjust_dt 0.1 # dynamically adjust time increment every step
-fix             integration_fix all smd/integrate_mpm FLIP 1
+fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+fix             integration_fix all smd/integrate_mpm FLIP 0.99
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
 ####################################################################################################
@@ -102,8 +100,6 @@ compute 	epsdot all smd/plastic_strain_rate
 compute 	S all smd/ulsph_stress # Cauchy stress tensor
 compute 	D all smd/ulsph_strain_rate
 compute 	damage all smd/damage
-compute         ftop top reduce sum fy
-compute         fbot bot reduce sum fy
 dump 		dump_id all custom 100 dump.LAMMPS id type x y z &
 			c_S[1] c_S[2] c_S[3] c_S[4] c_S[5] c_S[6] c_S[7] c_p &
 			c_D[1] c_D[2] c_D[4] c_damage radius c_epsdot &
@@ -113,11 +109,11 @@ dump_modify 	dump_id first yes
 ####################################################################################################
 # STATUS OUTPUT
 ####################################################################################################
-variable stress equal 0.5*(c_fbot-c_ftop)/20
-#variable length equal xcm(top,y)-xcm(bot,y)
-#variable strain equal (v_length-${length})/${length} # engineering strain
-#variable time equal f_dtfix
-#fix stress_curve all print 10 "${time} ${strain} ${stress}" file stress_strain.dat screen no
+variable stress equal 0.5*(f_bot_fix[2]-f_top_fix[2])/20
+variable length equal xcm(top,y)-xcm(bot,y)
+variable strain equal (v_length-${length})/${length} # engineering strain
+variable time equal f_dtfix
+fix stress_curve all print 10 "${time} ${strain} ${stress}" file stress_strain.dat screen no
 
 thermo 100
 thermo_style custom step dt time v_stress
@@ -130,4 +126,4 @@ thermo_style custom step dt time v_stress
 #velocity all ramp vy -1.01 1.01 y -10 10 units box
 
 fix 2 all enforce2d
-run 5000
+run 10000
