@@ -19,7 +19,7 @@ variable        cp equal 1.0 # heat capacity of material -- not used here
 variable        K equal ${c0}^2*${rho}
 variable        contact_stiffness equal 10*${K}
 variable        wall_temperature equal 100
-variable        friction_coeff equal 0.60
+variable        friction_coeff equal 0.10
 
 ####################################################################################################
 # INITIALIZE LAMMPS
@@ -41,8 +41,8 @@ variable 	l0 equal 1 # lattice spacing for creating particles
 lattice 	bcc ${l0}
 region		box block 0 60 -5 15 -5 36 units box
 create_box 	2 box
-#region		particles block 2 8 2 8 0 8 units box
-region          particles cylinder y 5 4 4 2 8 units box
+region		particles block 2 8 2 8 0 8 units box
+#region          particles cylinder y 5 4 4 2 8 units box
 create_atoms 	1 region particles
 
 group           water type 1
@@ -92,7 +92,7 @@ pair_coeff      1 2 smd/tri_surface ${contact_stiffness} ${wall_temperature} ${f
 ####################################################################################################
 fix             force_fix surface setforce 0 0 0
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix water smd/integrate_mpm FLIP 1
+fix             integration_fix water smd/integrate_mpm FLIP 0.99
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT

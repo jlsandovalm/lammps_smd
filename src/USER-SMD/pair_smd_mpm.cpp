@@ -552,6 +552,7 @@ void PairSmdMpm::ScatterVelocities() {
 void PairSmdMpm::ApplyVelocityBC() {
 	double **x = atom->x;
 	double **v = atom->v;
+	double *heat = atom->heat;
 	int *type = atom->type;
 	tagint *mol = atom->molecule;
 	int nlocal = atom->nlocal;
@@ -559,7 +560,7 @@ void PairSmdMpm::ApplyVelocityBC() {
 	int i, itype;
 	int ix, iy, iz, jx, jy, jz;
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wf, wfx, wfy;
-	double delz_scaled, delz_scaled_abs, wfz;
+	double delz_scaled, delz_scaled_abs, wfz, heat_particle;
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	Vector3d vel_particle;
 
@@ -587,6 +588,7 @@ void PairSmdMpm::ApplyVelocityBC() {
 				iz = icellsize * pz_shifted;
 
 				vel_particle << v[i][0], v[i][1], v[i][2];
+				heat_particle = heat[i];
 
 				for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 					delx_scaled = px_shifted * icellsize - 1.0 * jx;
@@ -606,6 +608,7 @@ void PairSmdMpm::ApplyVelocityBC() {
 							wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 							if (wf > 0.0) {
+								//gridnodes[jx][jy][jz].heat = heat_particle;
 								gridnodes[jx][jy][jz].v = vel_particle;
 								gridnodes[jx][jy][jz].vest = vel_particle;
 								gridnodes[jx][jy][jz].isVelocityBC = true;
@@ -1446,7 +1449,6 @@ void PairSmdMpm::USF() {
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
-	ApplyNoSlipSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_Gradients -= MPI_Wtime();
@@ -1470,7 +1472,6 @@ void PairSmdMpm::USF() {
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
-	ApplyNoSlipSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_GridToPoints -= MPI_Wtime();
@@ -1579,6 +1580,7 @@ void PairSmdMpm::AssembleStressTensor() {
 	double *rmass = atom->rmass;
 	double *eff_plastic_strain = atom->eff_plastic_strain;
 	double **tlsph_stress = atom->smd_stress;
+	double *heat = atom->heat;
 	double *e = atom->e;
 	double *de = atom->de;
 	double **x = atom->x;
@@ -1673,18 +1675,25 @@ void PairSmdMpm::AssembleStressTensor() {
 					break;
 
 				case STRENGTH_LINEAR_PLASTIC:
+
+					if (heat[i] > 0.05) {
+
 					yieldStress = Lookup[YIELD_STRENGTH][itype] + Lookup[HARDENING_PARAMETER][itype] * eff_plastic_strain[i];
 
 					LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
 							newStressDeviator, stressRateDev, plastic_strain_increment);
+					} else {
+						stressRateDev = 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
+						plastic_strain_increment = 0.0;
+					}
 
 					// this is for MPM extrusion
 
-					if (x[i][0] > -65.0) {
-						newStressDeviator.setZero();
-						stressRateDev.setZero();
-						plastic_strain_increment = 0.0;
-					}
+//					if (x[i][0] > -65.0) {
+//						newStressDeviator.setZero();
+//						stressRateDev.setZero();
+//						plastic_strain_increment = 0.0;
+//					}
 
 					eff_plastic_strain[i] += plastic_strain_increment;
 
