@@ -47,16 +47,16 @@ newton          off
 variable        l0 equal 1 # initial particle lattice spacing
 variable        cr equal 0.5*${l0}
 lattice         sq ${l0}
-region          box block 0 80 -0.01 13.01 -0.1 0.1 units box
+region          box block 0 80 -0.01 18.01 -0.1 0.1 units box
 create_box      2 box
-region          inflow block 0.9 1.0 0 12 EDGE EDGE units box
+region          inflow block 0.9 1.0 0 17 EDGE EDGE units box
 region          constvel block EDGE 5 EDGE EDGE EDGE EDGE units box
 region          outflow block 78.1 EDGE EDGE EDGE EDGE EDGE units box
 
-region          material block 25 60 5 EDGE EDGE EDGE units box
-region          p prism 25 60 5 EDGE -0.1 0.1 -20 0 0 side in units box
+region          material block 25 60 10 EDGE EDGE EDGE units box
+region          p prism 25 60 10 EDGE -0.1 0.1 -20 0 0 side in units box
 region          liner union 2 material p
-region          SPC block 5 60 13 EDGE EDGE EDGE units box
+region          SPC block 5 60 18 EDGE EDGE EDGE units box
 
 
 ####################################################################################################
@@ -89,7 +89,7 @@ variable        mpm_cellsize equal 1.0*${l0}
 #fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE units box
 #fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
 fix 		inflow all smd/inflow rho 1000 radius ${cr} freq 20 region inflow velocity 0.05 &
-                direction x type 1 contact_radius ${cr} heat 0
+                direction x type 1 contact_radius ${cr} heat 50
 fix             outflow all smd/outflow 10 outflow
 
 ####################################################################################################
@@ -109,14 +109,14 @@ variable 	heat_right equal ${temp_right}*${mass_one}*${Cp}
 pair_style      smd/mpm/multiple ${mpm_cellsize} sym_y_+ -0.01
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
-			      *HEAT_CONDUCTION 0 &
+			      *HEAT_CONDUCTION 10 &
 	                      *END
 pair_coeff      2 2 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
-			      *HEAT_CONDUCTION 0 &
-                              *STRENGTH_LINEAR ${G} &
+			      *HEAT_CONDUCTION 10 &
+                              *STRENGTH_LINEAR_PLASTIC ${G} ${SIGY0} ${HARDENING} &
 	                      *END
-pair_coeff      1 2 *CROSS *END
+pair_coeff      1 2 *CROSS 0.0 *END
 
 
 #                              *STRENGTH_LINEAR_PLASTIC ${G} ${SIGY0} ${HARDENING} &
@@ -125,7 +125,7 @@ pair_coeff      1 2 *CROSS *END
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water all smd/integrate_mpm FLIP 0.9 exclude_region constvel
+fix             integration_fix_water all smd/integrate_mpm FLIP 0.99 exclude_region constvel
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT

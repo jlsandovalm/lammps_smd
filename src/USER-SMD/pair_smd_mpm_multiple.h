@@ -168,6 +168,7 @@ private:
 	int min_ix, min_iy, min_iz;
 	int max_ix, max_iy, max_iz;
 	int maxpart;
+	double frictioncoeff;
 
 	double timeone_PointstoGrid, timeone_Gradients, timeone_MaterialModel, timeone_GridForces, timeone_UpdateGrid,
 			timeone_GridToPoints, timeone_SymmetryBC;

@@ -819,13 +819,15 @@ void PairSmdMpmMultiple::DoContact(int mode) {
 
 	int ix, iy, iz;
 	Vector3d dv, normal, n1, n2; //center-of-mass velocity
-	double norm, m1, m2, mc;
-	Vector3d v1, v2, vcm, p1, p2, dp1n, dp2n, dv12;
+	double norm, m1, m2, mc, mu_eff, tangent_norm, ratio, mu0;
+	Vector3d v1, v2, vcm, p1, p2, dp1, dv12, tangent;
 
 	for (ix = 0; ix < grid_nx; ix++) {
 		for (iy = 0; iy < grid_ny; iy++) {
 			for (iz = 0; iz < grid_nz; iz++) {
 				if ((gridnodes[0][ix][iy][iz].mass > MASS_CUTOFF) && (gridnodes[1][ix][iy][iz].mass > MASS_CUTOFF)) {
+
+					mu0 = frictioncoeff;
 
 					n1 = gridnodes[0][ix][iy][iz].n;
 					n2 = gridnodes[1][ix][iy][iz].n;
@@ -840,8 +842,8 @@ void PairSmdMpmMultiple::DoContact(int mode) {
 
 						normal /= norm;
 
-						v1 = gridnodes[0][ix][iy][iz].v.dot(normal) * normal;
-						v2 = gridnodes[1][ix][iy][iz].v.dot(normal) * normal;
+						v1 = gridnodes[0][ix][iy][iz].v;
+						v2 = gridnodes[1][ix][iy][iz].v;
 
 						m1 = gridnodes[0][ix][iy][iz].mass;
 						m2 = gridnodes[1][ix][iy][iz].mass;
@@ -855,20 +857,36 @@ void PairSmdMpmMultiple::DoContact(int mode) {
 
 						if (dv12.dot(normal) < 0.0) {
 
-							dp1n = m1 * vcm - p1;
-							dp2n = m2 * vcm - p2;
-//							cout << "center-of-mass momentum along normal before update is " << pcm << endl;
-							// force is change in momentum
+							tangent = dv12 - dv12.dot(normal) * normal;
+							tangent_norm = tangent.norm();
+							if (tangent_norm > MASS_CUTOFF) {
+								tangent /= tangent_norm;
+								ratio = dv12.dot(tangent)/ dv12.dot(normal);
+								if (ratio < -mu0) {
+									mu_eff = -mu0;
+								} else if (ratio > mu0) {
+									mu_eff = mu0;
+								} else {
+									mu_eff = ratio;
+								}
 
-							gridnodes[0][ix][iy][iz].f += dp1n / update->dt;
-							gridnodes[1][ix][iy][iz].f += dp2n / update->dt;
+								//printf("mu_eff=%f\n", mu_eff);
+								dp1 = (1.0 / mc) * (m1 * p2 - m2 * p1).dot(normal) * (normal + mu_eff * tangent);
+							} else {
+								dp1 = (1.0 / mc) * (m1 * p2 - m2 * p1).dot(normal) * normal;
+							}
+
+
+							gridnodes[0][ix][iy][iz].f += dp1 / update->dt;
+							gridnodes[1][ix][iy][iz].f -= dp1 / update->dt;
 
 							if (!gridnodes[0][ix][iy][iz].isVelocityBC) {
-								gridnodes[0][ix][iy][iz].v += dp1n / m1;
+								gridnodes[0][ix][iy][iz].v += dp1 / m1;
 							}
 							if (!gridnodes[1][ix][iy][iz].isVelocityBC) {
-								gridnodes[1][ix][iy][iz].v += dp2n / m2;
+								gridnodes[1][ix][iy][iz].v -= dp1 / m2;
 							}
+
 
 						}
 
@@ -2432,6 +2450,13 @@ void PairSmdMpmMultiple::coeff(int narg, char **arg) {
 					itype, jtype, jtype);
 			error->all(FLERR, str);
 		}
+
+		if (narg < 4) {
+			error->all(FLERR, "expected friction coefficient following *CROSS");
+		}
+
+		frictioncoeff = force->numeric(FLERR, arg[3]);
+
 
 		setflag[itype][jtype] = 1;
 		setflag[jtype][itype] = 1;
