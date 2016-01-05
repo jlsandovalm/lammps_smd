@@ -236,6 +236,8 @@ void FixSMDIntegrateMpm::final_integrate() {
 					}
 				}
 
+				heat[i] = PIC_contribution * particleHeat[i] + FLIP_contribution * (heat[i] + dtv * particleHeatRate[i]);
+
 			} else if (mode == CONSTANT_VELOCITY) {
 
 				// this is zero-acceleration (constant velocity) time integration for boundary particles
@@ -251,7 +253,6 @@ void FixSMDIntegrateMpm::final_integrate() {
 		}
 
 		e[i] += dtv * de[i];
-		heat[i] = PIC_contribution * particleHeat[i] + FLIP_contribution * (heat[i] + dtv * particleHeatRate[i]);
 	}
 }
 

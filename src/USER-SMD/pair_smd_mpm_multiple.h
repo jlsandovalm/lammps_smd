@@ -83,8 +83,7 @@ public:
 	void DumpGrid();
 	void GridGradientsToParticles();
 	void ApplyNoSlipSymmetryBC();
-	void DoContact();
-
+	void DoContact(int);
 
 protected:
 
@@ -153,12 +152,17 @@ private:
 	double **Lookup; // holds per-type material parameters for the quantities defined in enum statement above.
 
 	struct Gridnode {
-		double mass, heat, dheat_dt;
+		double mass;
 		Vector3d v, vest, f, n;
 		bool isVelocityBC;
 	};
 
+	struct Heatnode {
+		double mass, heat, dheat_dt;
+	};
+
 	Gridnode ****gridnodes;
+	Heatnode ***heatnodes;
 	double cellsize, icellsize;
 	int grid_nx, grid_ny, grid_nz;
 	int min_ix, min_iy, min_iz;

@@ -76,6 +76,7 @@ set             group all diameter ${l0}
 set             group all smd_contact_radius ${cr}
 set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho}
+set             group all smd_heat 1
 set             region SPC mol 1000
 
 variable        skin equal 0.1*${l0} # Verlet list range
@@ -88,7 +89,7 @@ variable        mpm_cellsize equal 1.0*${l0}
 #fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE units box
 #fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
 fix 		inflow all smd/inflow rho 1000 radius ${cr} freq 20 region inflow velocity 0.05 &
-                direction x type 1 contact_radius ${cr}
+                direction x type 1 contact_radius ${cr} heat 0
 fix             outflow all smd/outflow 10 outflow
 
 ####################################################################################################
@@ -105,15 +106,15 @@ variable 	heat_right equal ${temp_right}*${mass_one}*${Cp}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm ${mpm_cellsize} sym_y_+ -0.01
+pair_style      smd/mpm/multiple ${mpm_cellsize} sym_y_+ -0.01
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
-			      *HEAT_CONDUCTION 1.0e1 &
+			      *HEAT_CONDUCTION 0 &
 	                      *END
 pair_coeff      2 2 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
-			      *HEAT_CONDUCTION 1.0e1 &
-				*STRENGTH_LINEAR ${G} &
+			      *HEAT_CONDUCTION 0 &
+                              *STRENGTH_LINEAR ${G} &
 	                      *END
 pair_coeff      1 2 *CROSS *END
 

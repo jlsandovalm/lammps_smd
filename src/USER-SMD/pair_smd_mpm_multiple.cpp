@@ -59,7 +59,7 @@ using namespace Eigen;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
-#define MASS_CUTOFF 1.0e-16
+#define MASS_CUTOFF 1.0e-8
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
 #define GRID_OFFSET 3
@@ -284,7 +284,11 @@ void PairSmdMpmMultiple::CreateGrid() {
 	}
 	//printf("number of parts in MPM: %d\n", maxpart);
 
+	gridnodes = NULL;
 	memory->create(gridnodes, maxpart, grid_nx, grid_ny, grid_nz, "pair:gridnodes");
+
+	heatnodes = NULL;
+	memory->create(heatnodes, grid_nx, grid_ny, grid_nz, "pair:heatnodes"); // single field for all particles
 
 }
 
@@ -312,20 +316,23 @@ void PairSmdMpmMultiple::PointsToGrid() {
 	Vector3d vel_particle, vel_particle_est, g;
 
 	// clear the grid
-	for (ipart = 0; ipart < maxpart; ipart++) {
-		for (ix = 0; ix < grid_nx; ix++) {
-			for (iy = 0; iy < grid_ny; iy++) {
-				for (iz = 0; iz < grid_nz; iz++) {
+
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				for (ipart = 0; ipart < maxpart; ipart++) {
 					//memset(&gridnodes[ipart][ix][iy][iz], 0, sizeof(Gridnode));
 					gridnodes[ipart][ix][iy][iz].mass = 0.0;
-					gridnodes[ipart][ix][iy][iz].heat = 0.0;
-					gridnodes[ipart][ix][iy][iz].dheat_dt = 0.0;
 					gridnodes[ipart][ix][iy][iz].f.setZero();
 					gridnodes[ipart][ix][iy][iz].v.setZero();
 					gridnodes[ipart][ix][iy][iz].vest.setZero();
 					gridnodes[ipart][ix][iy][iz].isVelocityBC = false;
 					gridnodes[ipart][ix][iy][iz].n.setZero();
+
 				}
+				heatnodes[ix][iy][iz].mass = 0.0;
+				heatnodes[ix][iy][iz].heat = 0.0;
+				heatnodes[ix][iy][iz].dheat_dt = 0.0;
 			}
 		}
 	}
@@ -394,8 +401,9 @@ void PairSmdMpmMultiple::PointsToGrid() {
 									gridnodes[ipart][jx][jy][jz].v += wf * vel_particle;
 									gridnodes[ipart][jx][jy][jz].vest += wf * vel_particle_est;
 									gridnodes[ipart][jx][jy][jz].mass += wf * particle_mass;
-									gridnodes[ipart][jx][jy][jz].heat += wf * particle_heat;
 									gridnodes[ipart][jx][jy][jz].n += g; // this is the gradient of mass density -- used for computing the surface normal
+									heatnodes[jx][jy][jz].heat += wf * particle_heat;
+									heatnodes[jx][jy][jz].mass += wf * particle_mass;
 								}
 							}
 						}
@@ -408,21 +416,30 @@ void PairSmdMpmMultiple::PointsToGrid() {
 	}
 
 	// normalize grid data
-	for (ipart = 0; ipart < maxpart; ipart++) {
-		for (ix = 0; ix < grid_nx; ix++) {
-			for (iy = 0; iy < grid_ny; iy++) {
-				for (iz = 0; iz < grid_nz; iz++) {
+
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				for (ipart = 0; ipart < maxpart; ipart++) {
 					if (gridnodes[ipart][ix][iy][iz].mass > MASS_CUTOFF) {
 						gridnodes[ipart][ix][iy][iz].vest /= gridnodes[ipart][ix][iy][iz].mass;
 						gridnodes[ipart][ix][iy][iz].v /= gridnodes[ipart][ix][iy][iz].mass;
-						gridnodes[ipart][ix][iy][iz].heat /= gridnodes[ipart][ix][iy][iz].mass;
 						norm = gridnodes[ipart][ix][iy][iz].n.norm();
 						if (norm > MASS_CUTOFF) {
 							gridnodes[ipart][ix][iy][iz].n /= norm;
 						} else {
 							gridnodes[ipart][ix][iy][iz].n.setZero();
 						}
+
+						if (domain->dimension == 2) {
+							gridnodes[ipart][ix][iy][iz].n(2) = 0.0;
+						}
 					}
+				}
+				if (heatnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+					//printf("heat before norm is %f, mass is %f\n", heatnodes[ix][iy][iz].heat, heatnodes[ix][iy][iz].mass);
+					heatnodes[ix][iy][iz].heat /= heatnodes[ix][iy][iz].mass;
+					//printf("heat sfter norm is %f, mass is %f\n", heatnodes[ix][iy][iz].heat, heatnodes[ix][iy][iz].mass);
 				}
 			}
 		}
@@ -543,7 +560,6 @@ void PairSmdMpmMultiple::ScatterVelocities() {
 void PairSmdMpmMultiple::ApplyVelocityBC() {
 	double **x = atom->x;
 	double **v = atom->v;
-	double *heat = atom->heat;
 	int *type = atom->type;
 	tagint *mol = atom->molecule;
 	int nlocal = atom->nlocal;
@@ -551,7 +567,7 @@ void PairSmdMpmMultiple::ApplyVelocityBC() {
 	int i, itype, ipart;
 	int ix, iy, iz, jx, jy, jz;
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wf, wfx, wfy;
-	double delz_scaled, delz_scaled_abs, wfz, heat_particle;
+	double delz_scaled, delz_scaled_abs, wfz;
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	Vector3d vel_particle;
 
@@ -580,7 +596,6 @@ void PairSmdMpmMultiple::ApplyVelocityBC() {
 				iz = icellsize * pz_shifted;
 
 				vel_particle << v[i][0], v[i][1], v[i][2];
-				heat_particle = heat[i];
 
 				for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 					delx_scaled = px_shifted * icellsize - 1.0 * jx;
@@ -600,7 +615,6 @@ void PairSmdMpmMultiple::ApplyVelocityBC() {
 							wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 							if (wf > 0.0) {
-								//gridnodes[ipart][jx][jy][jz].heat = heat_particle;
 								gridnodes[ipart][jx][jy][jz].v = vel_particle;
 								gridnodes[ipart][jx][jy][jz].vest = vel_particle;
 								gridnodes[ipart][jx][jy][jz].isVelocityBC = true;
@@ -672,9 +686,9 @@ void PairSmdMpmMultiple::ComputeVelocityGradient() {
 									g(1) = wfdy * wfx * wfz;
 									g(2) = wfdz * wfx * wfy;
 
-									velocity_gradient += gridnodes[ipart][jx][jy][jz].vest * g.transpose(); // this is for USF
-											//velocity_gradient += gridnodes[ipart][jx][jy][jz].v * g.transpose(); // this is for USL
-									particle_heat_gradient += gridnodes[ipart][jx][jy][jz].heat * g; // units: energy / distance
+									//velocity_gradient += gridnodes[ipart][jx][jy][jz].vest * g.transpose(); // this is for USF
+									velocity_gradient += gridnodes[ipart][jx][jy][jz].v * g.transpose(); // this is for USL
+									particle_heat_gradient += heatnodes[jx][jy][jz].heat * g; // units: energy / distance
 									//mass_gradient += gridnodes[ipart][jx][jy][jz].mass * g; // required for contact algorithm
 								}
 							}
@@ -748,7 +762,7 @@ void PairSmdMpmMultiple::ComputeGridForces() {
 									 *forces from other force fields, e.g. contact
 									 */
 									gridnodes[ipart][jx][jy][jz].f += scaledStress * g + wf * otherForces;
-									gridnodes[ipart][jx][jy][jz].dheat_dt += scaled_temperature_gradient.dot(g);
+									heatnodes[jx][jy][jz].dheat_dt += scaled_temperature_gradient.dot(g);
 								}
 							}
 						}
@@ -769,15 +783,14 @@ void PairSmdMpmMultiple::UpdateGridVelocities() {
 	double dtm;
 	double dt = FACTOR * update->dt;
 
-	for (ipart = 0; ipart < maxpart; ipart++) {
-		for (ix = 0; ix < grid_nx; ix++) {
-			for (iy = 0; iy < grid_ny; iy++) {
-				for (iz = 0; iz < grid_nz; iz++) {
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				for (ipart = 0; ipart < maxpart; ipart++) {
 					if (gridnodes[ipart][ix][iy][iz].mass > MASS_CUTOFF) {
 						if (gridnodes[ipart][ix][iy][iz].isVelocityBC == false) {
 							dtm = dt / gridnodes[ipart][ix][iy][iz].mass;
 							gridnodes[ipart][ix][iy][iz].v += dtm * gridnodes[ipart][ix][iy][iz].f;
-							gridnodes[ipart][ix][iy][iz].heat += dtm * gridnodes[ipart][ix][iy][iz].dheat_dt;
 						} else {
 							// Buzzi 2008 says that momentum on grid boundary nodes needs to be zeroed.
 							/*
@@ -788,6 +801,11 @@ void PairSmdMpmMultiple::UpdateGridVelocities() {
 						}
 					}
 				}
+				if (heatnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+					dtm = dt / heatnodes[ix][iy][iz].mass;
+					//printf("heat before update is %f, mass is %f\n", heatnodes[ix][iy][iz].heat, heatnodes[ix][iy][iz].mass);
+					//heatnodes[ix][iy][iz].heat += dtm * heatnodes[ix][iy][iz].dheat_dt;
+				}
 			}
 		}
 	}
@@ -797,79 +815,70 @@ void PairSmdMpmMultiple::UpdateGridVelocities() {
  * Contact algorithm due to Bardenhagen & Guilkey ... CMES 2001
  */
 
-void PairSmdMpmMultiple::DoContact() {
+void PairSmdMpmMultiple::DoContact(int mode) {
 
-	int ix, iy, iz, ipart;
-	Vector3d vcm, vcm_est, dv, normal; //center-of-mass velocity
-	double cellmass, dvn, norm;
+	int ix, iy, iz;
+	Vector3d dv, normal, n1, n2; //center-of-mass velocity
+	double norm, m1, m2, mc;
+	Vector3d v1, v2, vcm, p1, p2, dp1n, dp2n, dv12;
 
-	for (ix = 1; ix < grid_nx - 1; ix++) {
-		for (iy = 1; iy < grid_ny - 1; iy++) {
-			for (iz = 1; iz < grid_nz - 1; iz++) {
+	for (ix = 0; ix < grid_nx; ix++) {
+		for (iy = 0; iy < grid_ny; iy++) {
+			for (iz = 0; iz < grid_nz; iz++) {
+				if ((gridnodes[0][ix][iy][iz].mass > MASS_CUTOFF) && (gridnodes[1][ix][iy][iz].mass > MASS_CUTOFF)) {
 
-				vcm.setZero();
-				normal.setZero();
-				cellmass = 0.0;
-				// build center-of-mass velocity
-				for (ipart = 0; ipart < maxpart; ipart++) {
-					if (gridnodes[ipart][ix][iy][iz].mass > MASS_CUTOFF) {
-						vcm += gridnodes[ipart][ix][iy][iz].mass * gridnodes[ipart][ix][iy][iz].v;
-						vcm_est += gridnodes[ipart][ix][iy][iz].mass * gridnodes[ipart][ix][iy][iz].vest;
-						cellmass += gridnodes[ipart][ix][iy][iz].mass;
+					n1 = gridnodes[0][ix][iy][iz].n;
+					n2 = gridnodes[1][ix][iy][iz].n;
 
-						if (ipart == 0) {
-							normal(0) -= (gridnodes[ipart][ix + 1][iy][iz].mass - gridnodes[ipart][ix - 1][iy][iz].mass);
-							normal(1) -= (gridnodes[ipart][ix][iy + 1][iz].mass - gridnodes[ipart][ix][iy - 1][iz].mass);
-							normal(2) -= (gridnodes[ipart][ix][iy][iz + 1].mass - gridnodes[ipart][ix][iy][iz - 1].mass);
-						} else {
-							normal(0) += (gridnodes[ipart][ix + 1][iy][iz].mass - gridnodes[ipart][ix - 1][iy][iz].mass);
-							normal(1) += (gridnodes[ipart][ix][iy + 1][iz].mass - gridnodes[ipart][ix][iy - 1][iz].mass);
-							normal(2) += (gridnodes[ipart][ix][iy][iz + 1].mass - gridnodes[ipart][ix][iy][iz - 1].mass);
-						}
-					}
-				}
+					normal = (n1 - n2);
+					norm = normal.norm();
 
-				if (cellmass > 0.0) {
-					vcm /= cellmass;
-					vcm_est /= cellmass;
+					/*
+					 * this method works for normal interaction (pure slide) only
+					 */
+					if (norm > MASS_CUTOFF) {
 
-					vcm.setZero();
+						normal /= norm;
 
-					for (ipart = 0; ipart < maxpart; ipart++) {
+						v1 = gridnodes[0][ix][iy][iz].v.dot(normal) * normal;
+						v2 = gridnodes[1][ix][iy][iz].v.dot(normal) * normal;
 
-						double sign;
-						if (ipart == 0) {
-							sign = 1.0;
-						} else {
-							sign = -1.0;
-						}
+						m1 = gridnodes[0][ix][iy][iz].mass;
+						m2 = gridnodes[1][ix][iy][iz].mass;
+						p1 = m1 * v1;
+						p2 = m2 * v2;
 
-						if (gridnodes[ipart][ix][iy][iz].mass > MASS_CUTOFF) {
+						mc = (m1 + m2); // cell mass
+						vcm = (p1 + p2) / (mc); // center-of-mass velocity
 
-							norm = normal.norm();
+						dv12 = v2 - v1;
 
-							if (norm > 1.0e-16) {
-								normal /= norm;
+						if (dv12.dot(normal) < 0.0) {
 
-								// contact condition
-								dv = gridnodes[ipart][ix][iy][iz].v - vcm;
+							dp1n = m1 * vcm - p1;
+							dp2n = m2 * vcm - p2;
+//							cout << "center-of-mass momentum along normal before update is " << pcm << endl;
+							// force is change in momentum
 
-								if (sign * dv.dot(normal) > 0.0) {
+							gridnodes[0][ix][iy][iz].f += dp1n / update->dt;
+							gridnodes[1][ix][iy][iz].f += dp2n / update->dt;
 
-									dvn = dv.dot(normal);
-									//cout << "old velocity " << gridnodes[ipart][ix][iy][iz].v.transpose() << endl;
-									gridnodes[ipart][ix][iy][iz].v = gridnodes[ipart][ix][iy][iz].v - dvn * normal;
-								}
-								//cout << "new velocity " << gridnodes[ipart][ix][iy][iz].v.transpose() << endl << endl;
-
+							if (!gridnodes[0][ix][iy][iz].isVelocityBC) {
+								gridnodes[0][ix][iy][iz].v += dp1n / m1;
 							}
-							//}
+							if (!gridnodes[1][ix][iy][iz].isVelocityBC) {
+								gridnodes[1][ix][iy][iz].v += dp2n / m2;
+							}
+
 						}
+
 					}
+
 				}
 			}
 
 		}
+
 	}
 }
 
@@ -1261,7 +1270,6 @@ void PairSmdMpmMultiple::ApplySymmetryBC(int mode) {
 }
 
 void PairSmdMpmMultiple::GridToPoints() {
-	double **smd_data_9 = atom->smd_data_9;
 	double **x = atom->x;
 	double **v = atom->v;
 	double **f = atom->f;
@@ -1274,8 +1282,7 @@ void PairSmdMpmMultiple::GridToPoints() {
 	double px_shifted, py_shifted, pz_shifted; // shifted coords of particles
 	double delx_scaled, delx_scaled_abs, dely_scaled, dely_scaled_abs, wfx, wfy, wf;
 	double delz_scaled, delz_scaled_abs, wfz;
-	Vector3d dx, vel_particle;
-	Matrix3d Bp;
+	Vector3d vel_particle;
 
 	for (i = 0; i < nlocal; i++) {
 
@@ -1297,12 +1304,10 @@ void PairSmdMpmMultiple::GridToPoints() {
 			iz = icellsize * pz_shifted;
 
 			vel_particle << v[i][0], v[i][1], v[i][2];
-			Bp.setZero();
 
 			for (jz = iz - STENCIL_LOW; jz < iz + STENCIL_HIGH; jz++) {
 
 				delz_scaled = pz_shifted * icellsize - 1.0 * jz;
-				dx(2) = delz_scaled * cellsize;
 				delz_scaled_abs = fabs(delz_scaled);
 				wfz = DisneyKernel(delz_scaled_abs);
 				if (wfz > 0.0) {
@@ -1310,7 +1315,6 @@ void PairSmdMpmMultiple::GridToPoints() {
 					for (jy = iy - STENCIL_LOW; jy < iy + STENCIL_HIGH; jy++) {
 
 						dely_scaled = py_shifted * icellsize - 1.0 * jy;
-						dx(1) = dely_scaled * cellsize;
 						dely_scaled_abs = fabs(dely_scaled);
 						wfy = DisneyKernel(dely_scaled_abs);
 						if (wfy > 0.0) {
@@ -1318,7 +1322,6 @@ void PairSmdMpmMultiple::GridToPoints() {
 							for (jx = ix - STENCIL_LOW; jx < ix + STENCIL_HIGH; jx++) {
 
 								delx_scaled = px_shifted * icellsize - 1.0 * jx;
-								dx(0) = delx_scaled * cellsize;
 								delx_scaled_abs = fabs(delx_scaled);
 								wfx = DisneyKernel(delx_scaled_abs);
 								if (wfx > 0.0) {
@@ -1326,17 +1329,8 @@ void PairSmdMpmMultiple::GridToPoints() {
 									wf = wfx * wfy * wfz; // this is the total weight function -- a dyadic product of the cartesian weight functions
 
 									particleVelocities[i] += wf * gridnodes[ipart][jx][jy][jz].v;
-
-									// NEED TO COMPUTE BP_n+1 here using the updated grid velocities
-//									if (gridnodes[ipart][jx][jy][jz].isVelocityBC == false) {
-//										if (APIC) {
-//											Bp += wf * gridnodes[ipart][jx][jy][jz].v * dx.transpose();
-//										}
-//									} else {
-//										if (APIC) {
-//											Bp += wf * vel_particle * dx.transpose();
-//										}
-//									}
+									particleHeatRate[i] += wf * heatnodes[jx][jy][jz].dheat_dt;
+									particleHeat[i] += wf * heatnodes[jx][jy][jz].heat;
 
 									if (gridnodes[ipart][jx][jy][jz].mass > MASS_CUTOFF) {
 
@@ -1359,8 +1353,6 @@ void PairSmdMpmMultiple::GridToPoints() {
 													/ gridnodes[ipart][jx][jy][jz].mass;
 										}
 
-										particleHeatRate[i] += wf * gridnodes[ipart][jx][jy][jz].dheat_dt;
-										particleHeat[i] += wf * gridnodes[ipart][jx][jy][jz].heat;
 									}
 
 									if (wf > 0.0) {
@@ -1382,25 +1374,6 @@ void PairSmdMpmMultiple::GridToPoints() {
 						}
 					}
 				}
-			}
-
-			/*
-			 * store the APIC correction matrix in atom data structure so it moves
-			 * with the particle if it is exchanged to another proc.
-			 */
-
-			if (APIC) {
-				smd_data_9[i][0] = Bp(0, 0);
-				smd_data_9[i][1] = Bp(0, 1);
-				smd_data_9[i][2] = Bp(0, 2);
-
-				smd_data_9[i][3] = Bp(1, 0);
-				smd_data_9[i][4] = Bp(1, 1);
-				smd_data_9[i][5] = Bp(1, 2);
-
-				smd_data_9[i][6] = Bp(2, 0);
-				smd_data_9[i][7] = Bp(2, 1);
-				smd_data_9[i][8] = Bp(2, 2);
 			}
 
 			if (domain->dimension == 2) {
@@ -1428,8 +1401,6 @@ void PairSmdMpmMultiple::GridToPoints() {
 
 		} // end if (setflag[itype][itype])
 	}
-
-	Bp_exists = true;
 
 }
 
@@ -1488,6 +1459,7 @@ void PairSmdMpmMultiple::UpdateDeformationGradient() {
 void PairSmdMpmMultiple::DestroyGrid() {
 
 	memory->destroy(gridnodes);
+	memory->destroy(heatnodes);
 
 }
 
@@ -1566,7 +1538,7 @@ void PairSmdMpmMultiple::USF() {
 	UpdateGridVelocities();
 	timeone_UpdateGrid += MPI_Wtime();
 
-	DoContact();
+	DoContact(10); // contact needs to work on updated grid velocities
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
@@ -1774,7 +1746,7 @@ void PairSmdMpmMultiple::AssembleStressTensor() {
 
 				case STRENGTH_LINEAR_PLASTIC:
 
-					if (heat[i] > 0.05) {
+					if (heat[i] > 2.0) {
 
 						yieldStress = Lookup[YIELD_STRENGTH][itype] + Lookup[HARDENING_PARAMETER][itype] * eff_plastic_strain[i];
 
@@ -2604,7 +2576,8 @@ void *PairSmdMpmMultiple::extract(const char *str, int &i) {
  compute effective shear modulus by dividing rate of deviatoric stress with rate of shear deformation
  ------------------------------------------------------------------------- */
 
-double PairSmdMpmMultiple::effective_shear_modulus(const Matrix3d d_dev, const Matrix3d deltaStressDev, const double dt, const int itype) {
+double PairSmdMpmMultiple::effective_shear_modulus(const Matrix3d d_dev, const Matrix3d deltaStressDev, const double dt,
+		const int itype) {
 	double G_eff; // effective shear modulus, see Pronto 2d eq. 3.4.7
 	double deltaStressDevSum, shearRateSq, strain_increment;
 
@@ -2634,29 +2607,29 @@ double PairSmdMpmMultiple::effective_shear_modulus(const Matrix3d d_dev, const M
 }
 
 void PairSmdMpmMultiple::SolveHeatEquation() {
-	int ix, iy, iz, ipart;
-	double d2heat_dx2, d2heat_dy2, d2heat_dz2;
-	for (ipart = 0; ipart < maxpart; ipart++) {
-		for (ix = 1; ix < grid_nx - 1; ix++) {
-			for (iy = 1; iy < grid_ny - 1; iy++) {
-				for (iz = 1; iz < grid_nz - 1; iz++) {
-					if (gridnodes[ipart][ix][iy][iz].mass > MASS_CUTOFF) {
-						// second derivative of heat in x direction
-						d2heat_dx2 = gridnodes[ipart][ix + 1][iy][iz].heat - 2.0 * gridnodes[ipart][ix][iy][iz].heat
-								+ gridnodes[ipart][ix - 1][iy][iz].heat;
-						d2heat_dy2 = gridnodes[ipart][ix][iy + 1][iz].heat - 2.0 * gridnodes[ipart][ix][iy][iz].heat
-								+ gridnodes[ipart][ix][iy - 1][iz].heat;
-						d2heat_dz2 = gridnodes[ipart][ix][iy][iz + 1].heat - 2.0 * gridnodes[ipart][ix][iy][iz].heat
-								+ gridnodes[ipart][ix][iy][iz - 1].heat;
-
-						gridnodes[ipart][ix][iy][iz].dheat_dt = d2heat_dx2 + d2heat_dy2 + d2heat_dz2;
-
-					}
-
-				}
-			}
-		}
-	}
+//	int ix, iy, iz, ipart;
+//	double d2heat_dx2, d2heat_dy2, d2heat_dz2;
+//	for (ipart = 0; ipart < maxpart; ipart++) {
+//		for (ix = 1; ix < grid_nx - 1; ix++) {
+//			for (iy = 1; iy < grid_ny - 1; iy++) {
+//				for (iz = 1; iz < grid_nz - 1; iz++) {
+//					if (gridnodes[ipart][ix][iy][iz].mass > MASS_CUTOFF) {
+//						// second derivative of heat in x direction
+//						d2heat_dx2 = gridnodes[ipart][ix + 1][iy][iz].heat - 2.0 * gridnodes[ipart][ix][iy][iz].heat
+//								+ gridnodes[ipart][ix - 1][iy][iz].heat;
+//						d2heat_dy2 = gridnodes[ipart][ix][iy + 1][iz].heat - 2.0 * gridnodes[ipart][ix][iy][iz].heat
+//								+ gridnodes[ipart][ix][iy - 1][iz].heat;
+//						d2heat_dz2 = gridnodes[ipart][ix][iy][iz + 1].heat - 2.0 * gridnodes[ipart][ix][iy][iz].heat
+//								+ gridnodes[ipart][ix][iy][iz - 1].heat;
+//
+//						gridnodes[ipart][ix][iy][iz].dheat_dt = d2heat_dx2 + d2heat_dy2 + d2heat_dz2;
+//
+//					}
+//
+//				}
+//			}
+//		}
+//	}
 }
 
 void PairSmdMpmMultiple::ComputeGridGradients() {
