@@ -59,10 +59,10 @@ using namespace Eigen;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
-#define MASS_CUTOFF 1.0e-16
+#define MASS_CUTOFF 1.0e-8
 #define STENCIL_LOW 1
 #define STENCIL_HIGH 3
-#define GRID_OFFSET 3
+#define GRID_OFFSET 2
 #define FACTOR 1
 
 enum {
@@ -176,7 +176,6 @@ void PairSmdMpm::CreateGrid() {
 	int nlocal = atom->nlocal;
 	int nall = nlocal + atom->nghost;
 	int i, itype;
-	double minx, miny, minz, maxx, maxy, maxz;
 	icellsize = 1.0 / cellsize; // inverse of cell size
 
 	// get bounds of this processor's simulation box
@@ -263,6 +262,13 @@ void PairSmdMpm::CreateGrid() {
 	grid_ny = (max_iy - min_iy) + 7;
 	grid_nz = (max_iz - min_iz) + 7;
 
+	minx -= cellsize; // this ensures we have only positive cell indices
+	miny -= cellsize; // needed for linear gridnodes
+	minz -= cellsize;
+	maxx -= cellsize;
+	maxy -= cellsize;
+	maxz -= cellsize;
+
 	// allocate grid storage
 	// we need a triple of indices (i, j, k)
 
@@ -271,6 +277,10 @@ void PairSmdMpm::CreateGrid() {
 //	printf("proc %d: nx=%d, ny=%d, nz=%d\n", comm->me, grid_nx, grid_ny, grid_nz);
 
 	memory->create(gridnodes, grid_nx, grid_ny, grid_nz, "pair:gridnodes");
+
+	Ncells = grid_nx * grid_ny * grid_nz;
+	lgridnodes = NULL;
+	lgridnodes = new Gridnode[Ncells];
 
 }
 
@@ -441,6 +451,145 @@ void PairSmdMpm::PointsToGrid() {
 			}
 		}
 	}
+}
+
+// use a linear array for grid nodes
+
+void PairSmdMpm::PointsToGridLinear() {
+	double **v = atom->v;
+	double **vest = atom->vest;
+	double *rmass = atom->rmass;
+	double *heat = atom->heat;
+	int *type = atom->type;
+	int nlocal = atom->nlocal;
+	int nall = nlocal + atom->nghost;
+	int ref_node;
+	double wfx[4], wfy[4], wfz[4];
+	Vector3d vel_particle, vel_particle_est;
+
+	for (int icell = 0; icell < Ncells; icell++) {
+		lgridnodes[icell].mass = 0.0;
+		lgridnodes[icell].heat = 0.0;
+		lgridnodes[icell].dheat_dt = 0.0;
+		lgridnodes[icell].f.setZero();
+		lgridnodes[icell].v.setZero();
+		lgridnodes[icell].vest.setZero();
+		lgridnodes[icell].isVelocityBC = false;
+	}
+
+	for (int i = 0; i < nall; i++) {
+
+		int itype = type[i];
+		if (setflag[itype][itype]) {
+
+			// pre-compute all possible quantities
+			double particle_mass = rmass[i];
+			double particle_heat = particle_mass * heat[i];
+			vel_particle << v[i][0], v[i][1], v[i][2];
+			vel_particle_est << vest[i][0], vest[i][1], vest[i][2];
+			vel_particle *= particle_mass;
+			vel_particle_est *= particle_mass;
+
+			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
+
+			// loop over all cell neighbors for this particle
+			for (int ix = 0; ix < 4; ix++) {
+				for (int iy = 0; iy < 4; iy++) {
+					for (int iz = 0; iz < 4; iz++) {
+
+						double wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
+						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+
+						if ((node_index < 0) || (node_index >= Ncells)) { // memory access error check
+							printf("node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
+							exit(1);
+						}
+
+						lgridnodes[node_index].v += wf * vel_particle;
+						lgridnodes[node_index].vest += wf * vel_particle_est;
+						lgridnodes[node_index].mass += wf * particle_mass;
+						lgridnodes[node_index].heat += wf * particle_heat;
+					}
+				}
+			}
+
+		} // end if setflag
+	} // end loop over nall
+
+	// normalize all grid cells
+	for (int icell = 0; icell < Ncells; icell++) {
+		if (lgridnodes[icell].mass > MASS_CUTOFF) {
+			lgridnodes[icell].v /= lgridnodes[icell].mass;
+			lgridnodes[icell].vest /= lgridnodes[icell].mass;
+			lgridnodes[icell].heat /= lgridnodes[icell].mass;
+		}
+	}
+
+}
+
+void PairSmdMpm::PreComputeGridWeights(const int i, int &ref_node, double *wfx, double *wfy, double *wfz) {
+	double **x = atom->x;
+
+	double ssx = icellsize * (x[i][0] - minx); // shifted position in grid coords
+	double ssy = icellsize * (x[i][1] - miny); // shifted position in grid coords
+	double ssz = icellsize * (x[i][2] - minz); // shifted position in grid coords
+
+	int ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
+	int ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
+	int ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	ref_node = ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
+
+	if ((ref_node < 0) || (ref_node > Ncells - 1)) { // memory access error check
+		printf("ref node %d outside allowed range %d to %d\n", ref_node, 0, Ncells);
+		printf("ref_ix=%d, ref_iy=%d, ref_iz=%d\n", ref_ix, ref_iy, ref_iz);
+		printf("ssx = %f, ssy=%f, ssz=%f\n", ssx, ssy, ssz);
+		printf("x-minx=%f, y-miny=%f, z-minz=%f\n", (x[i][0] - minx), (x[i][1] - miny), (x[i][2] - minz));
+		exit(1);
+	}
+
+	// pre-compute kernel weights
+	for (int ioff = 0; ioff < 4; ioff++) { // this is the x stencil visible to the current particle
+		double dist = fabs(ref_ix + ioff - ssx); // this is the x distance in world coords
+		wfx[ioff] = DisneyKernel(dist);
+		dist = fabs(ref_iy + ioff - ssy); // this is the x distance in world coords
+		wfy[ioff] = DisneyKernel(dist);
+		dist = fabs(ref_iz + ioff - ssz); // this is the x distance in world coords
+		wfz[ioff] = DisneyKernel(dist);
+	}
+
+}
+
+void PairSmdMpm::PreComputeGridWeightsAndDerivatives(const int i, int &ref_node, double *wfx, double *wfy, double *wfz,
+		double *wfdx, double *wfdy, double *wfdz) {
+	double **x = atom->x;
+
+	double ssx = icellsize * (x[i][0] - minx); // shifted position in grid coords
+	double ssy = icellsize * (x[i][1] - miny); // shifted position in grid coords
+	double ssz = icellsize * (x[i][2] - minz); // shifted position in grid coords
+
+	int ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
+	int ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
+	int ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	ref_node = ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
+
+	if ((ref_node < 0) || (ref_node > Ncells - 1)) { // memory access error check
+		printf("ref node %d outside allowed range %d to %d\n", ref_node, 0, Ncells);
+		printf("ref_ix=%d, ref_iy=%d, ref_iz=%d\n", ref_ix, ref_iy, ref_iz);
+		printf("ssx = %f, ssy=%f, ssz=%f\n", ssx, ssy, ssz);
+		printf("x-minx=%f, y-miny=%f, z-minz=%f\n", (x[i][0] - minx), (x[i][1] - miny), (x[i][2] - minz));
+		exit(1);
+	}
+
+	// pre-compute kernel weights
+	for (int ioff = 0; ioff < 4; ioff++) { // this is the x stencil visible to the current particle
+		double dist = ref_ix + ioff - ssx; // this is the x distance in world coords
+		DisneyKernelAndDerivative(icellsize, dist, wfx[ioff], wfdx[ioff]);
+		dist = ref_iy + ioff - ssy; // this is the y distance in world coords
+		DisneyKernelAndDerivative(icellsize, dist, wfy[ioff], wfdy[ioff]);
+		dist = ref_iz + ioff - ssz; // this is the z distance in world coords
+		DisneyKernelAndDerivative(icellsize, dist, wfz[ioff], wfdz[ioff]);
+	}
+
 }
 
 /*
@@ -694,6 +843,47 @@ void PairSmdMpm::ComputeVelocityGradient() {
 		} // end if (setflag[itype][itype])
 	}
 }
+
+void PairSmdMpm::VelocityGradientLinear() {
+	int *type = atom->type;
+	int nlocal = atom->nlocal;
+	int nall = nlocal + atom->nghost;
+	int ref_node;
+	double wfx[4], wfy[4], wfz[4], wfdx[4], wfdy[4], wfdz[4];
+	Vector3d particle_heat_gradient, g;
+	Matrix3d velocity_gradient;
+
+	for (int i = 0; i < nall; i++) {
+
+		int itype = type[i];
+		if (setflag[itype][itype]) {
+
+			velocity_gradient.setZero();
+			particle_heat_gradient.setZero();
+			PreComputeGridWeightsAndDerivatives(i, ref_node, wfx, wfy, wfz, wfdx, wfdy, wfdz);
+
+			// loop over all cell neighbors for this particle
+			for (int ix = 0; ix < 4; ix++) {
+				for (int iy = 0; iy < 4; iy++) {
+					for (int iz = 0; iz < 4; iz++) {
+
+						g(0) = wfdx[ix] * wfy[iy] * wfz[iz]; // this is the kernel gradient
+						g(1) = wfdy[iy] * wfx[ix] * wfz[iz];
+						g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
+
+						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+						velocity_gradient += lgridnodes[node_index].vest * g.transpose(); // this is for USF
+						particle_heat_gradient += lgridnodes[node_index].heat * g; // units: energy / distance
+					}
+				}
+			}
+
+			L[i] = -velocity_gradient;
+			heat_gradient[i] = -particle_heat_gradient;
+		} // end if setflag
+	} // end loop over nall
+}
+
 // ---- end velocity gradients ----
 
 void PairSmdMpm::ComputeGridForces() {
@@ -799,102 +989,102 @@ void PairSmdMpm::UpdateGridVelocities() {
 
 void PairSmdMpm::ApplyNoSlipSymmetryBC() {
 
-	int iy, ix, iz, source, target;
-	double px_shifted, py_shifted, pz_shifted;
-
-	if (noslip_symmetry_plane_y_plus_exists) {
-
-		// find y grid index corresponding location of y plus symmetry plane
-		py_shifted = noslip_symmetry_plane_y_plus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
-		iy = icellsize * py_shifted;
-
-		if ((iy < 0) || (iy >= grid_ny)) {
-			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
-			error->one(FLERR, "");
-		}
-
-		for (ix = 0; ix < grid_nx; ix++) {
-			for (iz = 0; iz < grid_nz; iz++) {
-
-				if (ix * cellsize > 40.0) {
-
-					// set all velocities to zero in the symmetry plane -- no slip condition
-					gridnodes[ix][iy][iz].v.setZero();
-					gridnodes[ix][iy][iz].vest.setZero();
-					gridnodes[ix][iy][iz].f.setZero();
-
-					// mirror velocity of nodes on the +-side to the -side
-
-					source = iy + 1;
-					target = iy - 1;
-
-					// check that cell indices are within bounds
-					if ((source < 0) || (source >= grid_ny)) {
-						printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
-						error->one(FLERR, "");
-					}
-
-					if ((target < 0) || (target >= grid_ny)) {
-						printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
-						error->one(FLERR, "");
-					}
-
-					// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-					gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
-					gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
-					gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
-					gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
-				}
-
-			}
-		}
-	}
-
-	if (noslip_symmetry_plane_y_minus_exists) {
-
-		// find y grid index corresponding location of y plus symmetry plane
-		py_shifted = noslip_symmetry_plane_y_minus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
-		iy = icellsize * py_shifted;
-
-		if ((iy < 0) || (iy >= grid_ny)) {
-			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
-			error->one(FLERR, "");
-		}
-
-		for (ix = 0; ix < grid_nx; ix++) {
-			for (iz = 0; iz < grid_nz; iz++) {
-
-				//if (ix * cellsize > 11.0) {
-				// set all velocities to zero in the symmetry plane -- no slip condition
-				gridnodes[ix][iy][iz].v.setZero();
-				gridnodes[ix][iy][iz].vest.setZero();
-				//gridnodes[ix][iy][iz].f.setZero();
-
-				// mirror velocity of nodes on the +-side to the -side
-				source = iy - 1;
-				target = iy + 1;
-
-				// check that cell indices are within bounds
-				if ((source < 0) || (source >= grid_ny)) {
-					printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
-					error->one(FLERR, "");
-				}
-
-				if ((target < 0) || (target >= grid_ny)) {
-					printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
-					error->one(FLERR, "");
-				}
-
-				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-				gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
-				gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
-				gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
-				gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
-				//}
-
-			}
-		}
-	}
+//	int iy, ix, iz, source, target;
+//	double px_shifted, py_shifted, pz_shifted;
+//
+//	if (noslip_symmetry_plane_y_plus_exists) {
+//
+//		// find y grid index corresponding location of y plus symmetry plane
+//		py_shifted = noslip_symmetry_plane_y_plus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
+//		iy = icellsize * py_shifted;
+//
+//		if ((iy < 0) || (iy >= grid_ny)) {
+//			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
+//			error->one(FLERR, "");
+//		}
+//
+//		for (ix = 0; ix < grid_nx; ix++) {
+//			for (iz = 0; iz < grid_nz; iz++) {
+//
+//				if (ix * cellsize > 40.0) {
+//
+//					// set all velocities to zero in the symmetry plane -- no slip condition
+//					gridnodes[ix][iy][iz].v.setZero();
+//					gridnodes[ix][iy][iz].vest.setZero();
+//					gridnodes[ix][iy][iz].f.setZero();
+//
+//					// mirror velocity of nodes on the +-side to the -side
+//
+//					source = iy + 1;
+//					target = iy - 1;
+//
+//					// check that cell indices are within bounds
+//					if ((source < 0) || (source >= grid_ny)) {
+//						printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
+//						error->one(FLERR, "");
+//					}
+//
+//					if ((target < 0) || (target >= grid_ny)) {
+//						printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
+//						error->one(FLERR, "");
+//					}
+//
+//					// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+//					gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
+//					gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
+//					gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
+//					gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
+//				}
+//
+//			}
+//		}
+//	}
+//
+//	if (noslip_symmetry_plane_y_minus_exists) {
+//
+//		// find y grid index corresponding location of y plus symmetry plane
+//		py_shifted = noslip_symmetry_plane_y_minus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
+//		iy = icellsize * py_shifted;
+//
+//		if ((iy < 0) || (iy >= grid_ny)) {
+//			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
+//			error->one(FLERR, "");
+//		}
+//
+//		for (ix = 0; ix < grid_nx; ix++) {
+//			for (iz = 0; iz < grid_nz; iz++) {
+//
+//				//if (ix * cellsize > 11.0) {
+//				// set all velocities to zero in the symmetry plane -- no slip condition
+//				gridnodes[ix][iy][iz].v.setZero();
+//				gridnodes[ix][iy][iz].vest.setZero();
+//				//gridnodes[ix][iy][iz].f.setZero();
+//
+//				// mirror velocity of nodes on the +-side to the -side
+//				source = iy - 1;
+//				target = iy + 1;
+//
+//				// check that cell indices are within bounds
+//				if ((source < 0) || (source >= grid_ny)) {
+//					printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
+//					error->one(FLERR, "");
+//				}
+//
+//				if ((target < 0) || (target >= grid_ny)) {
+//					printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
+//					error->one(FLERR, "");
+//				}
+//
+//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
+//				gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
+//				gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
+//				gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
+//				gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
+//				//}
+//
+//			}
+//		}
+//	}
 }
 
 void PairSmdMpm::ApplySymmetryBC(int mode) {
@@ -1393,6 +1583,7 @@ void PairSmdMpm::UpdateDeformationGradient() {
 void PairSmdMpm::DestroyGrid() {
 
 	memory->destroy(gridnodes);
+	delete[] lgridnodes;
 
 }
 
@@ -1442,10 +1633,13 @@ void PairSmdMpm::USF() {
 
 	CreateGrid();
 
+
 	timeone_PointstoGrid -= MPI_Wtime();
 	PointsToGrid();
+	//PointsToGridLinear();
 	ApplyVelocityBC();
 	timeone_PointstoGrid += MPI_Wtime();
+	//DumpGrid();
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	ApplySymmetryBC(COPY_VELOCITIES);
@@ -1453,8 +1647,9 @@ void PairSmdMpm::USF() {
 
 	timeone_Gradients -= MPI_Wtime();
 	ComputeVelocityGradient(); // using current velocities
-	UpdateDeformationGradient();
+	//VelocityGradientLinear();
 	timeone_Gradients += MPI_Wtime();
+	UpdateDeformationGradient();
 
 	timeone_MaterialModel -= MPI_Wtime();
 	GetStress();
@@ -1583,7 +1778,7 @@ void PairSmdMpm::AssembleStressTensor() {
 	double *heat = atom->heat;
 	double *e = atom->e;
 	double *de = atom->de;
-	double **x = atom->x;
+	//double **x = atom->x;
 	int *type = atom->type;
 	double pFinal;
 	int i, itype;
@@ -1678,10 +1873,10 @@ void PairSmdMpm::AssembleStressTensor() {
 
 					if (heat[i] > 0.05) {
 
-					yieldStress = Lookup[YIELD_STRENGTH][itype] + Lookup[HARDENING_PARAMETER][itype] * eff_plastic_strain[i];
+						yieldStress = Lookup[YIELD_STRENGTH][itype] + Lookup[HARDENING_PARAMETER][itype] * eff_plastic_strain[i];
 
-					LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
-							newStressDeviator, stressRateDev, plastic_strain_increment);
+						LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
+								newStressDeviator, stressRateDev, plastic_strain_increment);
 					} else {
 						stressRateDev = 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
 						plastic_strain_increment = 0.0;
@@ -2690,17 +2885,16 @@ void PairSmdMpm::DumpGrid() {
 
 	printf("... dumping grid\n");
 
-	int ix, iy, iz;
-
 	int count = 0;
-	for (ix = 0; ix < grid_nx; ix++) {
-		for (iy = 0; iy < grid_ny; iy++) {
-			for (iz = 0; iz < grid_nz; iz++) {
-				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
+	for (int ix = 0; ix < grid_nx; ix++) {
+		for (int iy = 0; iy < grid_ny; iy++) {
+			for (int iz = 0; iz < grid_nz; iz++) {
+				int icell = ix + iy * grid_nx + iz * grid_nx * grid_ny;
+				if (lgridnodes[icell].mass > MASS_CUTOFF) {
 					count++;
 				}
-
 			}
+
 		}
 	}
 
@@ -2709,15 +2903,15 @@ void PairSmdMpm::DumpGrid() {
 
 	fprintf(f, "%d\n\n", count);
 
-	for (ix = 0; ix < grid_nx; ix++) {
-		for (iy = 0; iy < grid_ny; iy++) {
-			for (iz = 0; iz < grid_nz; iz++) {
-				if (gridnodes[ix][iy][iz].mass > MASS_CUTOFF) {
-//					fprintf(f, "X %f %f %f %f %f %f %f\n", ix * cellsize, iy * cellsize, iz * cellsize, gridnodes[ix][iy][iz].v(0),
-					//gridnodes[ix][iy][iz].v(1), gridnodes[ix][iy][iz].v(2), gridnodes[ix][iy][iz].Lxx);
+	for (int ix = 0; ix < grid_nx; ix++) {
+		for (int iy = 0; iy < grid_ny; iy++) {
+			for (int iz = 0; iz < grid_nz; iz++) {
+				int icell = ix + iy * grid_nx + iz * grid_nx * grid_ny;
+				if (lgridnodes[icell].mass > MASS_CUTOFF) {
+					fprintf(f, "X %f %f %f %g\n", ix * cellsize, iy * cellsize, iz * cellsize, lgridnodes[icell].mass);
 				}
-
 			}
+
 		}
 	}
 

@@ -19,7 +19,7 @@ variable        cp equal 1.0 # heat capacity of material -- not used here
 variable        K equal ${c0}^2*${rho}
 variable        contact_stiffness equal 10*${K}
 variable        wall_temperature equal 100
-variable        friction_coeff equal 0.10
+variable        friction_coeff equal 0.0
 
 ####################################################################################################
 # INITIALIZE LAMMPS
@@ -139,4 +139,4 @@ thermo_style custom step dt f_dtfix pe ke v_etot c_vx_block
 #balance          1.1 rcb
 #fix              balance_fix all balance 1000 1.1 rcb 
 #velocity         water set 0 -1 0 units box
-run              10000
+run              500

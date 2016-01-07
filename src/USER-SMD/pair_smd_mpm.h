@@ -83,6 +83,10 @@ public:
 	void DumpGrid();
 	void GridGradientsToParticles();
 	void ApplyNoSlipSymmetryBC();
+	void PointsToGridLinear();
+	void VelocityGradientLinear();
+	void PreComputeGridWeights(const int i, int &ref_node, double *wfx, double *wfy, double *wfz);
+	void PreComputeGridWeightsAndDerivatives(const int i, int &ref_node, double *wfx, double *wfy, double *wfz, double *wfdx, double *wfdy, double *wfdz);
 
 
 protected:
@@ -158,9 +162,12 @@ private:
 
 	Gridnode ***gridnodes;
 	double cellsize, icellsize;
-	int grid_nx, grid_ny, grid_nz;
+	int grid_nx, grid_ny, grid_nz, Ncells;
 	int min_ix, min_iy, min_iz;
 	int max_ix, max_iy, max_iz;
+	double minx, maxx, miny, maxy, minz, maxz;
+
+	Gridnode *lgridnodes; // linear array of gridnodes
 
 	double timeone_PointstoGrid, timeone_Gradients, timeone_MaterialModel, timeone_GridForces, timeone_UpdateGrid,
 			timeone_GridToPoints, timeone_SymmetryBC;
