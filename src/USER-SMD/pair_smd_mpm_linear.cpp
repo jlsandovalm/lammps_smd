@@ -59,7 +59,7 @@ using namespace Eigen;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
-#define MASS_CUTOFF 1.0e-8
+#define MASS_CUTOFF 1.0e-16
 #define FACTOR 1
 
 enum {
@@ -339,6 +339,7 @@ void PairSmdMpmLin::PointsToGrid() {
 	// normalize all grid cells
 	for (int icell = 0; icell < Ncells; icell++) {
 		if (lgridnodes[icell].mass > MASS_CUTOFF) {
+			lgridnodes[icell].imass = 1.0 / lgridnodes[icell].mass;
 			lgridnodes[icell].v /= lgridnodes[icell].mass;
 			lgridnodes[icell].vest /= lgridnodes[icell].mass;
 			lgridnodes[icell].heat /= lgridnodes[icell].mass;
@@ -553,9 +554,9 @@ void PairSmdMpmLin::ComputeGridForces() {
 			PreComputeGridWeightsAndDerivatives(i, ref_node, wfx, wfy, wfz, wfdx, wfdy, wfdz);
 
 			// loop over all cell neighbors for this particle
-			for (int ix = 0; ix < 4; ix++) {
+			for (int iz = 0; iz < 4; iz++) {
 				for (int iy = 0; iy < 4; iy++) {
-					for (int iz = 0; iz < 4; iz++) {
+					for (int ix = 0; ix < 4; ix++) {
 
 						g(0) = wfdx[ix] * wfy[iy] * wfz[iz]; // this is the kernel gradient
 						g(1) = wfdy[iy] * wfx[ix] * wfz[iz];
@@ -582,7 +583,7 @@ void PairSmdMpmLin::UpdateGridVelocities() {
 
 	for (int icell = 0; icell < Ncells; icell++) {
 		if (lgridnodes[icell].mass > MASS_CUTOFF) {
-			dtm = dt / lgridnodes[icell].mass;
+			dtm = dt * lgridnodes[icell].imass;
 			lgridnodes[icell].v += dtm * lgridnodes[icell].f;
 			lgridnodes[icell].heat += dtm * lgridnodes[icell].dheat_dt;
 		}
@@ -876,15 +877,10 @@ void PairSmdMpmLin::GridToPoints() {
 		int itype = type[i];
 		if (setflag[itype][itype]) {
 
-			//particleVelocities[i].setZero();
-			//particleAccelerations[i].setZero();
 			pv.setZero();
 			pa.setZero();
 			double phr = 0.0;
 			double ph = 0.0;
-			//particleHeatRate[i] = 0.0;
-			//particleHeat[i] = 0.0;
-
 			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
 
 			// loop over all cell neighbors for this particle
@@ -896,9 +892,8 @@ void PairSmdMpmLin::GridToPoints() {
 						if (lgridnodes[node_index].mass > MASS_CUTOFF) {
 
 							wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
-
 							pv += wf * lgridnodes[node_index].v;
-							pa += wf * lgridnodes[node_index].f / lgridnodes[node_index].mass;
+							pa += wf * lgridnodes[node_index].imass * lgridnodes[node_index].f ;
 							phr += wf * lgridnodes[node_index].dheat_dt;
 							ph += wf * lgridnodes[node_index].heat;
 						}

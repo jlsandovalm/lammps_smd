@@ -148,7 +148,7 @@ private:
 	double **Lookup; // holds per-type material parameters for the quantities defined in enum statement above.
 
 	struct Gridnode {
-		double mass, heat, dheat_dt;
+		double mass, heat, dheat_dt, imass;
 		Vector3d v, vest, f;
 		bool isVelocityBC;
 	};
