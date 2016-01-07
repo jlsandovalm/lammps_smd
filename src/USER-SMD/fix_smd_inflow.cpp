@@ -478,16 +478,20 @@ void FixSmdInflow::pre_exchange() {
 							double *radius = atom->radius;
 							double **v = atom->v;
 							double **vest = atom->vest;
+							int *mask = atom->mask;
 							vfrac[idx] = volume_one;
 							rmass[idx] = mass_one;
 							radius[idx] = radius_one;
 							contact_radius[idx] = contact_radius_one;
 							heat[idx] = heat_one;
 
+
 							v[idx][0] = vest[idx][0] = 0.0;
 							v[idx][1] = vest[idx][1] = 0.0;
 							v[idx][2] = vest[idx][2] = 0.0;
 							v[idx][insertion_dimension] = vest[idx][insertion_dimension] = velocity;
+
+							mask[idx] = 1 | groupbit;
 
 						}
 					}

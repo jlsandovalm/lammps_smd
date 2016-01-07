@@ -50,10 +50,12 @@ class FixSMDIntegrateMpm : public Fix {
   char *idregion;
 
  protected:
-  enum {DEFAULT_INTEGRATION, CONSTANT_VELOCITY};
+  enum {DEFAULT_INTEGRATION, CONSTANT_VELOCITY, PRESCRIBED_VELOCITY};
   double dtv, vlimit, vlimitsq;;
   int mass_require;
   double FLIP_contribution, PIC_contribution;
+  double const_vx, const_vy, const_vz;
+  bool flag3d; // integrate z degree of freedom?
 
   class Pair *pair;
 };

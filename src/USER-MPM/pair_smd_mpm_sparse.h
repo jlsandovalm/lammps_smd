@@ -72,19 +72,12 @@ public:
 	void UpdateStress();
 	void GetStress();
 	void ApplyVelocityBC();
-	void SolveHeatEquation();
 	void MUSL();
 	void USF();
 	void USL();
-	void ScatterVelocities();
 	void ApplySymmetryBC(int mode);
 	void AdvanceParticles();
 	void AdvanceParticlesEnergy();
-	void ComputeGridGradients();
-	void DumpGrid();
-	void GridGradientsToParticles();
-	void ApplyNoSlipSymmetryBC();
-	void testopenvdb();
 	void NormalizeGrid();
 
 
@@ -110,8 +103,6 @@ protected:
 	Vector3d *heat_gradient;
 
 	double dtCFL;
-	bool Bp_exists;
-
 	Vector3d *particleVelocities, *particleAccelerations; // per-particle angular momentum
 
 	openvdb::DoubleGrid::Ptr grid_mass;
@@ -161,15 +152,7 @@ private:
 	};
 	double **Lookup; // holds per-type material parameters for the quantities defined in enum statement above.
 
-	struct Gridnode {
-		double mass, heat, dheat_dt;
-		Vector3d v, vest, f;
-		bool isVelocityBC;
-	};
-
-	Gridnode ***gridnodes;
-	double cellsize, icellsize;
-	int grid_nx, grid_ny, grid_nz;
+	double cellsize, icellsize, minx, miny, minz, maxx, maxy, maxz;
 	int min_ix, min_iy, min_iz;
 	int max_ix, max_iy, max_iz;
 

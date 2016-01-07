@@ -193,6 +193,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 
 			if (rsq < rcutSq) {
 
+
 				/*
 				 * gather triangle information
 				 */
@@ -204,7 +205,9 @@ void PairTriSurf::compute(int eflag, int vflag) {
 				 * distance check: is particle closer than its radius to the triangle plane?
 				 */
 				if (fabs(dx.dot(normal)) < r_particle) {
-					//if (true) {
+
+					heat[particle] = wall_temperature[itype][jtype]; // directly set particle temperature to wall temp
+
 					/*
 					 * get other two triangle vertices
 					 */
@@ -256,7 +259,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 						}
 
 						ncontact[particle] += 1;
-						heat[particle] = wall_temperature[itype][jtype];
+
 
 						/*
 						 * flip normal to point in direction of x4cp
