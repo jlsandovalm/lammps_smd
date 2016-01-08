@@ -64,7 +64,7 @@ using namespace Eigen;
 #define FACTOR 1
 
 enum {
-	COPY_VELOCITIES, COPY_FORCES, COPY_NEW_VELOCITIES
+	Xplus, Yplus, Zplus
 };
 
 PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
@@ -181,14 +181,14 @@ void PairSmdMpmLin::CreateGrid() {
 	//printf("bounds max: %f %f %f\n", domain->subhi[0], domain->subhi[1], domain->subhi[2]);
 
 	// get min / max position of all particles
-	minx = domain->sublo[0];
-	miny = domain->sublo[1];
-	minz = domain->sublo[2];
-	maxx = domain->subhi[0];
-	maxy = domain->subhi[1];
-	maxz = domain->subhi[2];
-	//minx = miny = minz = BIG;
-	//maxx = maxy = maxz = -BIG;
+//	minx = domain->sublo[0];
+//	miny = domain->sublo[1];
+//	minz = domain->sublo[2];
+//	maxx = domain->subhi[0];
+//	maxy = domain->subhi[1];
+//	maxz = domain->subhi[2];
+	minx = miny = minz = BIG;
+	maxx = maxy = maxz = -BIG;
 
 	for (i = 0; i < nall; i++) {
 		itype = type[i];
@@ -203,9 +203,9 @@ void PairSmdMpmLin::CreateGrid() {
 	}
 
 	if (symmetry_plane_y_plus_exists) {
-		if (miny < symmetry_plane_y_plus_location - 0.1 * cellsize) {
-			error->one(FLERR, "Cannot have particle or box boundary below y+ symmetry plane.");
-		}
+		//if (miny < symmetry_plane_y_plus_location - 0.1 * cellsize) {
+//			error->one(FLERR, "Cannot have particle or box boundary below y+ symmetry plane.");
+		//}
 		miny = symmetry_plane_y_plus_location;
 	}
 
@@ -587,7 +587,6 @@ void PairSmdMpmLin::ComputeVelocityGradient() {
 
 void PairSmdMpmLin::ComputeGridForces() {
 	double **f = atom->f;
-	double *rmass = atom->rmass;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
 	int i, itype, ref_node;
@@ -643,7 +642,57 @@ void PairSmdMpmLin::UpdateGridVelocities() {
 
 }
 
-void PairSmdMpmLin::ApplySymmetryBC(int mode) {
+void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction) {
+
+	if (direction == Yplus) {
+
+		lgridnodes[icell].v(1) = 0.0;
+		lgridnodes[icell].f(1) = 0.0;
+
+		// mirror velocity of nodes on the +-side to the -side
+		//
+		int source = iy + 1;
+		int target = iy - 1;
+		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
+		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
+		lgridnodes[targetcell].v(1) = lgridnodes[sourcecell].v(1);
+		lgridnodes[targetcell].f(1) = lgridnodes[sourcecell].f(1);
+	}
+
+}
+
+void PairSmdMpmLin::CheckSymmetryBC() {
+
+	if (symmetry_plane_y_plus_exists) {
+
+		/*
+		 * check if current grid extends to the symmetry plane
+		 */
+
+		double ssy = icellsize * symmetry_plane_y_plus_location - static_cast<double>(miniy); // shifted position in grid coords
+		int ssy_index = (int) ssy - 1;
+
+		//printf(" ssy index is %d\n", ssy_index);
+
+		if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
+
+			//printf("symmetry plane at coord %f is within background grid\n", symmetry_plane_y_plus_location);
+
+			for (int ix = 0; ix < grid_nx; ix++) {
+				for (int iz = 0; iz < grid_nz; iz++) {
+
+					int icell = ix + ssy_index * grid_nx + iz * grid_nx * grid_ny;
+
+					ApplySymmetryBC(icell, ix, ssy_index, iz, Yplus);
+
+				}
+
+			}
+
+			//ref_node = ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
+
+		}
+	}
 
 //	int iy, ix, iz, source, target;
 //	double px_shifted, py_shifted, pz_shifted;
@@ -977,6 +1026,8 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 	 */
 //error->one(FLERR, "should not be here");
 // given the velocity gradient, update the deformation gradient
+	double **x = atom->x;
+	double **v = atom->v;
 	double **smd_data_9 = atom->smd_data_9;
 	double *vol0 = atom->vfrac;
 	int *type = atom->type;
@@ -998,6 +1049,12 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 			F = Fincr * Map<Matrix3d>(smd_data_9[i]);
 			J[i] = F.determinant();
 			vol[i] = vol0[i] * J[i];
+
+			if (x[i][1] < symmetry_plane_y_plus_location) {
+				v[i][1] = 0.0;
+				//	J[i] = 2.0 * J[i];
+//				vol[i] = vol0[i] * J[i];
+			}
 
 			//cout << "this is F after update" << endl << F << endl;
 
@@ -1067,46 +1124,46 @@ void PairSmdMpmLin::compute(int eflag, int vflag) {
 
 void PairSmdMpmLin::USF() {
 
-	CreateGrid();
-
-	timeone_PointstoGrid -= MPI_Wtime();
-	PointsToGrid();
-	//ApplyVelocityBC();
-	timeone_PointstoGrid += MPI_Wtime();
-	//DumpGrid();
-
-	timeone_SymmetryBC -= MPI_Wtime();
-	//ApplySymmetryBC(COPY_VELOCITIES);
-	timeone_SymmetryBC += MPI_Wtime();
-
-	timeone_Gradients -= MPI_Wtime();
-	ComputeVelocityGradient(); // using current velocities
-	timeone_Gradients += MPI_Wtime();
-	UpdateDeformationGradient();
-
-	timeone_MaterialModel -= MPI_Wtime();
-	GetStress();
-	AssembleStressTensor();
-	comm->forward_comm_pair(this);
-	timeone_MaterialModel += MPI_Wtime();
-
-	timeone_GridForces -= MPI_Wtime();
-	ComputeGridForces();
-	timeone_GridForces += MPI_Wtime();
-
-	timeone_UpdateGrid -= MPI_Wtime();
-	UpdateGridVelocities();
-	timeone_UpdateGrid += MPI_Wtime();
-
-	timeone_SymmetryBC -= MPI_Wtime();
-	//ApplySymmetryBC(COPY_VELOCITIES);
-	timeone_SymmetryBC += MPI_Wtime();
-
-	timeone_GridToPoints -= MPI_Wtime();
-	GridToPoints();
-	timeone_GridToPoints += MPI_Wtime();
-
-	DestroyGrid();
+//	CreateGrid();
+//
+//	timeone_PointstoGrid -= MPI_Wtime();
+//	PointsToGrid();
+//	//ApplyVelocityBC();
+//	timeone_PointstoGrid += MPI_Wtime();
+//	//DumpGrid();
+//
+//	timeone_SymmetryBC -= MPI_Wtime();
+//	//ApplySymmetryBC(COPY_VELOCITIES);
+//	timeone_SymmetryBC += MPI_Wtime();
+//
+//	timeone_Gradients -= MPI_Wtime();
+//	ComputeVelocityGradient(); // using current velocities
+//	timeone_Gradients += MPI_Wtime();
+//	UpdateDeformationGradient();
+//
+//	timeone_MaterialModel -= MPI_Wtime();
+//	GetStress();
+//	AssembleStressTensor();
+//	comm->forward_comm_pair(this);
+//	timeone_MaterialModel += MPI_Wtime();
+//
+//	timeone_GridForces -= MPI_Wtime();
+//	ComputeGridForces();
+//	timeone_GridForces += MPI_Wtime();
+//
+//	timeone_UpdateGrid -= MPI_Wtime();
+//	UpdateGridVelocities();
+//	timeone_UpdateGrid += MPI_Wtime();
+//
+//	timeone_SymmetryBC -= MPI_Wtime();
+//	//ApplySymmetryBC(COPY_VELOCITIES);
+//	timeone_SymmetryBC += MPI_Wtime();
+//
+//	timeone_GridToPoints -= MPI_Wtime();
+//	GridToPoints();
+//	timeone_GridToPoints += MPI_Wtime();
+//
+//	DestroyGrid();
 }
 
 void PairSmdMpmLin::MUSL() {
@@ -1117,6 +1174,10 @@ void PairSmdMpmLin::MUSL() {
 	ComputeHeatGradientOnGrid();
 	timeone_PointstoGrid += MPI_Wtime();
 
+	timeone_SymmetryBC -= MPI_Wtime();
+	CheckSymmetryBC();
+	timeone_SymmetryBC += MPI_Wtime();
+
 	timeone_Comm -= MPI_Wtime();
 	GetStress();
 	comm->forward_comm_pair(this); // need to have stress tensor on ghosts
@@ -1126,9 +1187,17 @@ void PairSmdMpmLin::MUSL() {
 	ComputeGridForces();
 	timeone_GridForces += MPI_Wtime();
 
+	timeone_SymmetryBC -= MPI_Wtime();
+	CheckSymmetryBC();
+	timeone_SymmetryBC += MPI_Wtime();
+
 	timeone_UpdateGrid -= MPI_Wtime();
 	UpdateGridVelocities(); // full step
 	timeone_UpdateGrid += MPI_Wtime();
+
+	timeone_SymmetryBC -= MPI_Wtime();
+	CheckSymmetryBC();
+	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_GridToPoints -= MPI_Wtime();
 	GridToPoints();
@@ -1145,6 +1214,10 @@ void PairSmdMpmLin::MUSL() {
 	timeone_GridToPoints -= MPI_Wtime();
 	VelocitiesToGrid(); // This is the M in MUSL -- scatter velocities to grid
 	timeone_GridToPoints += MPI_Wtime();
+
+	timeone_SymmetryBC -= MPI_Wtime();
+	CheckSymmetryBC();
+	timeone_SymmetryBC += MPI_Wtime();
 
 	timeone_Gradients -= MPI_Wtime();
 	ComputeVelocityGradient();
@@ -1442,7 +1515,7 @@ void PairSmdMpmLin::allocate() {
 
 void PairSmdMpmLin::settings(int narg, char **arg) {
 
-	// defaults
+// defaults
 	vlimit = -1.0;
 	FLIP_contribution = 0.99;
 	region_flag = 0;
@@ -2354,7 +2427,7 @@ void PairSmdMpmLin::AdvanceParticlesEnergy() {
 
 void PairSmdMpmLin::ComputeHeatGradientOnGrid() {
 
-	// todo: introduce heat conduction coeff
+// todo: introduce heat conduction coeff
 
 	double factor = icellsize * icellsize;
 	double totalflux = 0.0;
@@ -2426,7 +2499,7 @@ void PairSmdMpmLin::ComputeHeatGradientOnGrid() {
 		}
 	}
 
-	//printf("total heat flux is %f\n", totalflux);
+//printf("total heat flux is %f\n", totalflux);
 }
 
 void PairSmdMpmLin::DumpGrid() {

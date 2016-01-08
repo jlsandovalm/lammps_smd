@@ -42,10 +42,11 @@ set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
 set             group all smd_contact_radius ${cr}
 
-pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_x_+ 0 sym_x_- 0.9
+pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 FLIP 1
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
+                *STRENGTH_LINEAR 0.5 &
 		*END
 
 
@@ -53,7 +54,6 @@ pair_coeff      1 1 *COMMON ${rho}  ${c0}          ${art_visc}  0             ${
 
 
 compute         rho all smd/rho
-compute         nn all smd/ulsph_num_neighs
 compute         contact_radius all smd/contact_radius
 compute         eint all smd/internal_energy
 compute         alleint all reduce sum c_eint
@@ -70,12 +70,11 @@ variable        amz equal angmom(all,z) # angular momentum
 timestep        ${dt} # set an initial estimate for the zero-th timestep
 #timestep        0
 fix             dtfix all smd/adjust_dt 0.5
-fix             integration_fix all smd/integrate_mpm FLIP 0.99 # actual integration for equations of motion
 
 variable        dumpFreq equal 100
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
                 fx fy fz vx vy vz c_eint &
-                c_contact_radius c_nn mol c_rho c_S[1] c_S[2] c_S[4] radius &
+                c_contact_radius mol c_rho c_S[1] c_S[2] c_S[4] radius &
                 c_D[1] c_D[2] c_D[4] 
 
 dump_modify     dump_id first yes

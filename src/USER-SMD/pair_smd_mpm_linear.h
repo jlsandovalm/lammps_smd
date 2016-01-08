@@ -73,18 +73,19 @@ public:
 	void SolveHeatEquation();
 	void MUSL();
 	void USF();
-	void ApplySymmetryBC(int mode);
+
 	void AdvanceParticles();
 	void AdvanceParticlesEnergy();
 	void ComputeGridGradients();
 	void DumpGrid();
 	void GridGradientsToParticles();
-	void ApplyNoSlipSymmetryBC();
 	void PreComputeGridWeights(const int i, int &ref_node, double *wfx, double *wfy, double *wfz);
 	void PreComputeGridWeightsAndDerivatives(const int i, int &ref_node, double *wfx, double *wfy, double *wfz, double *wfdx,
 			double *wfdy, double *wfdz);
 	void VelocitiesToGrid();
 	void ComputeHeatGradientOnGrid();
+	void ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction);
+	void CheckSymmetryBC();
 
 protected:
 
