@@ -84,7 +84,7 @@ variable        mpm_cellsize equal 1.0*${l0}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm ${mpm_cellsize}
+pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
                               *VISCOSITY_NEWTON 0.0 &
@@ -95,7 +95,7 @@ pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water all smd/integrate_mpm FLIP 0.99
+#fix             integration_fix_water all smd/integrate_mpm FLIP 1
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT

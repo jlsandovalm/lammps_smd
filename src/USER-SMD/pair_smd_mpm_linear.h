@@ -68,13 +68,11 @@ public:
 	void ComputeVelocityGradient();
 	void ComputeGridForces();
 	void GridToPoints();
-	void UpdateStress();
 	void GetStress();
 	void ApplyVelocityBC();
 	void SolveHeatEquation();
 	void MUSL();
 	void USF();
-	void USL();
 	void ApplySymmetryBC(int mode);
 	void AdvanceParticles();
 	void AdvanceParticlesEnergy();
@@ -83,8 +81,10 @@ public:
 	void GridGradientsToParticles();
 	void ApplyNoSlipSymmetryBC();
 	void PreComputeGridWeights(const int i, int &ref_node, double *wfx, double *wfy, double *wfz);
-	void PreComputeGridWeightsAndDerivatives(const int i, int &ref_node, double *wfx, double *wfy, double *wfz, double *wfdx, double *wfdy, double *wfdz);
-
+	void PreComputeGridWeightsAndDerivatives(const int i, int &ref_node, double *wfx, double *wfy, double *wfz, double *wfdx,
+			double *wfdy, double *wfdz);
+	void VelocitiesToGrid();
+	void ComputeHeatGradientOnGrid();
 
 protected:
 
@@ -97,7 +97,6 @@ protected:
 	void allocate();
 
 	int nmax; // max number of atoms on this proc
-	int *numNeighs;
 	double *c0;
 	double *particleHeat, *particleHeatRate;
 	double *J; // determinant of deformation gradient
@@ -125,6 +124,18 @@ private:
 		STRENGTH_LINEAR = 3000, STRENGTH_LINEAR_PLASTIC = 3001
 	};
 
+	// stuff for time integration
+	enum {
+		DEFAULT_INTEGRATION = 4000, CONSTANT_VELOCITY = 4001, PRESCRIBED_VELOCITY = 4002
+	};
+	double dtv, vlimit, vlimitsq;
+	int mass_require;
+	double FLIP_contribution, PIC_contribution;
+	double const_vx, const_vy, const_vz;
+	bool flag3d; // integrate z degree of freedom?
+	int nregion, region_flag;
+	char *idregion;
+
 	// enumerate some quantitities and associate these with integer values such that they can be used for lookup in an array structure
 	enum {
 		NONE = 0,
@@ -149,18 +160,19 @@ private:
 
 	struct Gridnode {
 		double mass, heat, dheat_dt, imass;
-		Vector3d v, vest, f;
+		Vector3d v, f;
 		bool isVelocityBC;
 	};
 
 	double cellsize, icellsize;
+	int minix, miniy, miniz, maxix, maxiy, maxiz;
 	int grid_nx, grid_ny, grid_nz, Ncells;
 	double minx, maxx, miny, maxy, minz, maxz;
 
 	Gridnode *lgridnodes; // linear array of gridnodes
 
 	double timeone_PointstoGrid, timeone_Gradients, timeone_MaterialModel, timeone_GridForces, timeone_UpdateGrid,
-			timeone_GridToPoints, timeone_SymmetryBC;
+			timeone_GridToPoints, timeone_SymmetryBC, timeone_Comm, timeone_UpdateParticles;
 
 	// symmetry planes
 	double symmetry_plane_y_plus_location, symmetry_plane_y_minus_location, symmetry_plane_x_plus_location,

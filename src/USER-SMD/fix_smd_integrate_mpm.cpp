@@ -171,7 +171,7 @@ void FixSMDIntegrateMpm::init() {
 
 void FixSMDIntegrateMpm::final_integrate() {
 
-//return; // do nothing for now because everything is handeled in MUSL in pair style
+	return; // do nothing for now because everything is handeled in MUSL in pair style
 
 	double **x = atom->x;
 	double **v = atom->v;

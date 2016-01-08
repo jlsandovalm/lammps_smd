@@ -40,7 +40,7 @@ newton          off
 ####################################################################################################
 # CREATE INITIAL GEOMETRY
 ####################################################################################################
-variable 	l0 equal 0.5 # lattice spacing for creating particles
+variable 	l0 equal 1.0 # lattice spacing for creating particles
 lattice 	sc ${l0}
 region		box block -100 100 -13 13 -0.6 0.6 units box
 create_box 	3 box
@@ -79,8 +79,8 @@ group           surfB type 3
 # INTERACTION PHYSICS / MATERIAL MODEL
 ####################################################################################################
 pair_style      hybrid/overlay smd/tri_surface 1.0 &
-                smd/mpm ${mpm_cellsize}
-pair_coeff      1 1 smd/mpm   *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
+                smd/mpm_linear ${mpm_cellsize} FLIP 0.99 exclude_region constvel ${vel} 0 0 2d
+pair_coeff      1 1 smd/mpm_linear   *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
                               *EOS_TAIT 2 &
                               *HEAT_CONDUCTION 0.6e-6 &
 	                      *END
@@ -103,12 +103,11 @@ fix             outflow all smd/outflow 10 outflow
 ####################################################################################################
 fix             force_fix surfA setforce 0 0 0
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix fluid smd/integrate_mpm FLIP 1 exclude_region constvel ${vel} 0 0 2d
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
 ####################################################################################################
-variable        dumpFreq equal 10
+variable        dumpFreq equal 100
 compute 	rho all smd/rho
 compute         contact_radius all smd/contact_radius
 compute         surfA_coords surfA smd/triangle_vertices
@@ -150,4 +149,4 @@ thermo_style custom step dt f_dtfix pe ke v_etot c_vx_block
 #balance          1.1 rcb
 #fix              balance_fix all balance 1000 1.1 rcb 
 #velocity         fluid set 0 -1 0 units box
-run              10000
+run              100000

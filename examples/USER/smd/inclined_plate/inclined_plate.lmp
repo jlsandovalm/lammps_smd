@@ -78,8 +78,8 @@ group           surface type 2
 # INTERACTION PHYSICS / MATERIAL MODEL
 ####################################################################################################
 pair_style      hybrid/overlay smd/tri_surface 1.0 &
-                smd/mpm ${mpm_cellsize}
-pair_coeff      1 1 smd/mpm   *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
+                smd/mpm_linear ${mpm_cellsize} FLIP 0.99
+pair_coeff      1 1 smd/mpm_linear   *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
                               *EOS_TAIT 2 &
                               *STRENGTH_LINEAR ${K} &
 	                      *END
@@ -92,7 +92,7 @@ pair_coeff      1 2 smd/tri_surface ${contact_stiffness} ${wall_temperature} ${f
 ####################################################################################################
 fix             force_fix surface setforce 0 0 0
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix water smd/integrate_mpm FLIP 0.99
+#fix             integration_fix water smd/integrate_mpm FLIP 0.99
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
