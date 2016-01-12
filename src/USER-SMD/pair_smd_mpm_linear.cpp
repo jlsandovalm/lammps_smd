@@ -47,6 +47,7 @@
 #include "smd_math.h"
 #include "smd_kernels.h"
 #include <unsupported/Eigen/MatrixFunctions>
+#include "SmdMatDB.h"
 
 using namespace SMD_Kernels;
 using namespace std;
@@ -73,8 +74,6 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	// per-type arrays
 	Q1 = NULL;
 	eos = viscosity = strength = NULL;
-	c0_type = NULL;
-	c0 = NULL;
 	J = NULL;
 	vol = NULL;
 	heat_conduction_coeff = NULL;
@@ -96,6 +95,38 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	symmetry_plane_x_plus_exists = symmetry_plane_x_minus_exists = false;
 	symmetry_plane_z_plus_exists = symmetry_plane_z_minus_exists = false;
 	noslip_symmetry_plane_y_plus_exists = noslip_symmetry_plane_y_minus_exists = false;
+
+	int retcode = matDB.ReadMaterials(atom->ntypes);
+	if (retcode < 0) {
+		error->one(FLERR, "failed to read material database");
+	}
+
+	//printf("type %d, rho0 %f\n", 1, matDB.gProps[1].rho0);
+
+	//printf("type %d, EOS %d\n", 1, matDB.gProps[1].EOS);
+
+	for (int itype = 1; itype < atom->ntypes + 1; itype++) {
+
+		printf("\ntype = %d\n", itype);
+		printf("material strength name is %s\n", matDB.gProps[itype].strengthName.c_str());
+		int strengthType = matDB.gProps[itype].strengthType;
+		int idx = matDB.gProps[itype].strengthTypeIdx;
+
+		if (strengthType == 1) { // linear elastic
+			printf("number of linear elastic material types: %lu\n", matDB.strengthLinear_vec.size());
+			printf("linear elastic youngs modulus %f\n", matDB.strengthLinear_vec[idx].E);
+			printf("linear elastic shear  modulus %f\n", matDB.strengthLinear_vec[idx].G);
+			printf("linear elastic Poisson ratio  %f\n", matDB.strengthLinear_vec[idx].nu);
+		}
+
+		int eosType = matDB.gProps[itype].eosType;
+		idx = matDB.gProps[itype].eosTypeIdx;
+
+		if (eosType == 1) { // linear elastic
+			printf("number of linear eos types: %lu\n", matDB.eosLinear_vec.size());
+			printf("linear eos bulk modulus %f\n", matDB.eosLinear_vec[idx].K);
+		}
+	}
 }
 
 /* ---------------------------------------------------------------------- */
@@ -147,11 +178,9 @@ PairSmdMpmLin::~PairSmdMpmLin() {
 		memory->destroy(eos);
 		memory->destroy(viscosity);
 		memory->destroy(strength);
-		memory->destroy(c0_type);
 		memory->destroy(heat_conduction_coeff);
 		memory->destroy(Lookup);
 
-		delete[] c0;
 		delete[] stressTensor;
 		delete[] L;
 		delete[] F;
@@ -164,6 +193,7 @@ PairSmdMpmLin::~PairSmdMpmLin() {
 		delete[] vol;
 
 	}
+
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1095,8 +1125,6 @@ void PairSmdMpmLin::compute(int eflag, int vflag) {
 	if (atom->nmax > nmax) {
 //printf("... allocating in compute with nmax = %d\n", atom->nmax);
 		nmax = atom->nmax;
-		delete[] c0;
-		c0 = new double[nmax];
 		delete[] stressTensor;
 		stressTensor = new Matrix3d[nmax];
 		delete[] L;
@@ -1225,7 +1253,7 @@ void PairSmdMpmLin::MUSL() {
 
 	timeone_MaterialModel -= MPI_Wtime();
 	UpdateDeformationGradient();
-	AssembleStressTensor();
+	UpdateStress();
 	timeone_MaterialModel += MPI_Wtime();
 
 	timeone_UpdateParticles -= MPI_Wtime();
@@ -1269,11 +1297,11 @@ void PairSmdMpmLin::GetStress() {
  Assemble total stress tensor with pressure, material sterength, and
  viscosity contributions.
  ------------------------------------------------------------------------- */
-void PairSmdMpmLin::AssembleStressTensor() {
+void PairSmdMpmLin::UpdateStress() {
 	double *rmass = atom->rmass;
 	double *eff_plastic_strain = atom->eff_plastic_strain;
 	double **tlsph_stress = atom->smd_stress;
-	double *heat = atom->heat;
+	//double *heat = atom->heat;
 	double *e = atom->e;
 	double *de = atom->de;
 //double **x = atom->x;
@@ -1283,7 +1311,7 @@ void PairSmdMpmLin::AssembleStressTensor() {
 	int nlocal = atom->nlocal;
 	Matrix3d E, D, Ddev, W, V, sigma_diag;
 	Matrix3d eye, stressRate, StressRateDevJaumann;
-	Matrix3d sigmaInitial_dev, d_dev, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
+	Matrix3d stressIncrement, d_dev, devStrainIncrement, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
 	double plastic_strain_increment, yieldStress;
 	double dt = FACTOR * update->dt;
 	double newPressure;
@@ -1311,110 +1339,34 @@ void PairSmdMpmLin::AssembleStressTensor() {
 
 			rho = rmass[i] / vol[i];
 
-			switch (eos[itype]) {
-			default:
-				error->one(FLERR, "unknown EOS.");
-				break;
-			case NONE:
-				pFinal = 0.0;
-				c0[i] = 1.0;
-				break;
-			case EOS_TAIT:
-				TaitEOS_density(Lookup[EOS_TAIT_EXPONENT][itype], Lookup[REFERENCE_SOUNDSPEED][itype],
-						Lookup[REFERENCE_DENSITY][itype], rho, newPressure, c0[i]);
-				//printf("new pressure =%f\n", newPressure);
 
-				break;
-			case EOS_PERFECT_GAS:
-				PerfectGasEOS(Lookup[EOS_PERFECT_GAS_GAMMA][itype], vol[i], rmass[i], e[i], newPressure, c0[i]);
-				break;
-			case EOS_LINEAR:
-				newPressure = Lookup[BULK_MODULUS][itype] * (rho / Lookup[REFERENCE_DENSITY][itype] - 1.0);
-				//printf("p=%f, rho0=%f, rho=%f\n", newPressure, Lookup[REFERENCE_DENSITY][itype], rho);
-				c0[i] = Lookup[REFERENCE_SOUNDSPEED][itype];
-				break;
-			}
-
-			K_eff = c0[i] * c0[i] * rho; // effective bulk modulus
+			double mu = J[i];
+			double temperature = 1.0;
+			double soundspeed;
+			matDB.ComputePressure(mu, temperature, itype, newPressure, K_eff);
 
 			/*
 			 * ******************************* STRENGTH MODELS ************************************************
 			 */
 
-			if (strength[itype] != NONE) {
+			if (matDB.gProps[itype].strengthType != 0) {
 				/*
 				 * initial stress state has already been assigned before in function GetStress()
 				 * we need the deviator here.
 				 */
 				oldStressDeviator = Deviator(stressTensor[i]);
-
-				W = 0.5 * (L[i] - L[i].transpose()); // spin tensor:: need this for Jaumann rate
 				d_dev = Deviator(D);
+				devStrainIncrement = dt * d_dev;
 
-				switch (strength[itype]) {
-				default:
-					error->one(FLERR, "unknown strength model.");
-					break;
-				case STRENGTH_LINEAR:
-
-					// here in a version with pressure part
-//					stressRateDev = Lookup[BULK_MODULUS][itype] * d_iso * eye + 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
-//					c0[i] = Lookup[REFERENCE_SOUNDSPEED][itype];
-//					newPressure = 0.0;
-
-					// here only stress deviator
-					stressRateDev = 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
-					//cout << "stress rate deviator is " << endl << stressRateDev << endl;
-					break;
-
-				case STRENGTH_LINEAR_PLASTIC:
-
-					if (heat[i] > 0.05) {
-
-						yieldStress = Lookup[YIELD_STRENGTH][itype] + Lookup[HARDENING_PARAMETER][itype] * eff_plastic_strain[i];
-
-						LinearPlasticStrength(Lookup[SHEAR_MODULUS][itype], yieldStress, oldStressDeviator, d_dev, dt,
-								newStressDeviator, stressRateDev, plastic_strain_increment);
-					} else {
-						stressRateDev = 2.0 * Lookup[SHEAR_MODULUS][itype] * d_dev;
-						plastic_strain_increment = 0.0;
-					}
-
-					// this is for MPM extrusion
-
-//					if (x[i][0] > -65.0) {
-//						newStressDeviator.setZero();
-//						stressRateDev.setZero();
-//						plastic_strain_increment = 0.0;
-//					}
-
-					eff_plastic_strain[i] += plastic_strain_increment;
-
-					break;
-				}
-
-				StressRateDevJaumann = stressRateDev; // - W * oldStressDeviator + oldStressDeviator * W;
-				newStressDeviator = oldStressDeviator + dt * StressRateDevJaumann;
+				matDB.ComputeDevStressIncrement(devStrainIncrement, itype, stressIncrement);
+				newStressDeviator = oldStressDeviator + stressIncrement;
 
 				// estimate effective shear modulus for time step stability
 				deltaStressDev = oldStressDeviator - newStressDeviator;
-				G_eff = effective_shear_modulus(d_dev, deltaStressDev, dt, itype);
+				G_eff = effective_shear_modulus(d_dev/dt, deltaStressDev, dt, itype);
 
 			} // end if (strength[itype] != NONE)
 
-			if (viscosity[itype] != NONE) {
-				d_dev = Deviator(D);
-
-				switch (viscosity[itype]) {
-				default:
-					error->one(FLERR, "unknown viscosity model.");
-					break;
-				case VISCOSITY_NEWTON:
-					effectiveViscosity = Lookup[VISCOSITY_MU][itype];
-					newStressDeviator = 2.0 * effectiveViscosity * d_dev; // newton original
-					break;
-				}
-			} // end if (viscosity[itype] != NONE)
 
 			/*
 			 * assemble updated stress Tensor from pressure and deviatoric parts
@@ -1486,7 +1438,6 @@ void PairSmdMpmLin::allocate() {
 
 	memory->create(Q1, n + 1, "pair:Q1");
 	memory->create(rho0, n + 1, "pair:Q2");
-	memory->create(c0_type, n + 1, "pair:c0_type");
 	memory->create(heat_conduction_coeff, n + 1, "pair:heat_conduction_coeff");
 	memory->create(eos, n + 1, "pair:eosmodel");
 	memory->create(viscosity, n + 1, "pair:viscositymodel");
@@ -1750,342 +1701,13 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 		 * read parameters which are common -- regardless of material / eos model
 		 */
 
-		ioffset = 2;
-		if (strcmp(arg[ioffset], "*COMMON") != 0) {
-			sprintf(str, "common keyword missing!");
-			error->all(FLERR, str);
-		} else {
-		}
 
-		t = string("*");
-		iNextKwd = -1;
-		for (iarg = ioffset + 1; iarg < narg; iarg++) {
-			s = string(arg[iarg]);
-			if (s.compare(0, t.length(), t) == 0) {
-				iNextKwd = iarg;
-				break;
-			}
-		}
-
-//printf("keyword following *COMMON is %s\n", arg[iNextKwd]);
-
-		if (iNextKwd < 0) {
-			sprintf(str, "no *KEYWORD terminates *COMMON");
-			error->all(FLERR, str);
-		}
-
-		if (iNextKwd - ioffset != 5 + 1) {
-			sprintf(str, "expected 5 arguments following *COMMON but got %d\n", iNextKwd - ioffset - 1);
-			error->all(FLERR, str);
-		}
-
-		Lookup[REFERENCE_DENSITY][itype] = force->numeric(FLERR, arg[ioffset + 1]);
-		Lookup[REFERENCE_SOUNDSPEED][itype] = force->numeric(FLERR, arg[ioffset + 2]);
-		Q1[itype] = force->numeric(FLERR, arg[ioffset + 3]);
-		Lookup[HEAT_CAPACITY][itype] = force->numeric(FLERR, arg[ioffset + 4]);
-		Lookup[HOURGLASS_CONTROL_AMPLITUDE][itype] = force->numeric(FLERR, arg[ioffset + 5]);
-
-		Lookup[BULK_MODULUS][itype] = Lookup[REFERENCE_SOUNDSPEED][itype] * Lookup[REFERENCE_SOUNDSPEED][itype]
-				* Lookup[REFERENCE_DENSITY][itype];
-
-		if (comm->me == 0) {
-			printf("material unspecific properties for SMD/MPM definition of particle type %d:\n", itype);
-			printf(FORMAT1, "reference density", Lookup[REFERENCE_DENSITY][itype]);
-			printf(FORMAT1, "reference speed of sound", Lookup[REFERENCE_SOUNDSPEED][itype]);
-			printf(FORMAT1, "linear viscosity coefficient", Q1[itype]);
-			printf(FORMAT1, "heat capacity [energy / (mass * temperature)]", Lookup[HEAT_CAPACITY][itype]);
-			printf(FORMAT1, "bulk modulus", Lookup[BULK_MODULUS][itype]);
-			printf(FORMAT1, "hourglass control amplitude", Lookup[HOURGLASS_CONTROL_AMPLITUDE][itype]);
-		}
-
-		/*
-		 * read following material cards
-		 */
-
-//		if (comm->me == 0) {
-//			printf("next kwd is %s\n", arg[iNextKwd]);
-//		}
-		while (true) {
-			if (strcmp(arg[iNextKwd], "*END") == 0) {
-//				if (comm->me == 0) {
-//					sprintf(str, "found *END");
-//					error->message(FLERR, str);
-//				}
-				break;
-			}
-
-			ioffset = iNextKwd;
-			if (strcmp(arg[ioffset], "*EOS_TAIT") == 0) {
-
-				/*
-				 * Tait EOS
-				 */
-
-				eos[itype] = EOS_TAIT;
-				//printf("reading *EOS_TAIT\n");
-
-				t = string("*");
-				iNextKwd = -1;
-				for (iarg = ioffset + 1; iarg < narg; iarg++) {
-					s = string(arg[iarg]);
-					if (s.compare(0, t.length(), t) == 0) {
-						iNextKwd = iarg;
-						break;
-					}
-				}
-
-				if (iNextKwd < 0) {
-					sprintf(str, "no *KEYWORD terminates *EOS_TAIT");
-					error->all(FLERR, str);
-				}
-
-				if (iNextKwd - ioffset != 1 + 1) {
-					sprintf(str, "expected 1 arguments following *EOS_TAIT but got %d\n", iNextKwd - ioffset - 1);
-					error->all(FLERR, str);
-				}
-
-				Lookup[EOS_TAIT_EXPONENT][itype] = force->numeric(FLERR, arg[ioffset + 1]);
-
-				if (comm->me == 0) {
-					printf(FORMAT2, "Tait EOS");
-					printf(FORMAT1, "Exponent", Lookup[EOS_TAIT_EXPONENT][itype]);
-				}
-			} // end Tait EOS
-
-			else if (strcmp(arg[ioffset], "*EOS_PERFECT_GAS") == 0) {
-
-				/*
-				 * Perfect Gas EOS
-				 */
-
-				eos[itype] = EOS_PERFECT_GAS;
-				//printf("reading *EOS_PERFECT_GAS\n");
-
-				t = string("*");
-				iNextKwd = -1;
-				for (iarg = ioffset + 1; iarg < narg; iarg++) {
-					s = string(arg[iarg]);
-					if (s.compare(0, t.length(), t) == 0) {
-						iNextKwd = iarg;
-						break;
-					}
-				}
-
-				if (iNextKwd < 0) {
-					sprintf(str, "no *KEYWORD terminates *EOS_PERFECT_GAS");
-					error->all(FLERR, str);
-				}
-
-				if (iNextKwd - ioffset != 1 + 1) {
-					sprintf(str, "expected 1 arguments following *EOS_PERFECT_GAS but got %d\n", iNextKwd - ioffset - 1);
-					error->all(FLERR, str);
-				}
-
-				Lookup[EOS_PERFECT_GAS_GAMMA][itype] = force->numeric(FLERR, arg[ioffset + 1]);
-
-				if (comm->me == 0) {
-					printf(FORMAT2, "Perfect Gas EOS");
-					printf(FORMAT1, "Heat Capacity Ratio Gamma", Lookup[EOS_PERFECT_GAS_GAMMA][itype]);
-				}
-			} // end Perfect Gas EOS
-			else if (strcmp(arg[ioffset], "*EOS_LINEAR") == 0) {
-
-				/*
-				 * Linear EOS
-				 */
-
-				eos[itype] = EOS_LINEAR;
-
-				t = string("*");
-				iNextKwd = -1;
-				for (iarg = ioffset + 1; iarg < narg; iarg++) {
-					s = string(arg[iarg]);
-					if (s.compare(0, t.length(), t) == 0) {
-						iNextKwd = iarg;
-						break;
-					}
-				}
-
-				if (iNextKwd < 0) {
-					sprintf(str, "no *KEYWORD terminates *EOS_LINEAR");
-					error->all(FLERR, str);
-				}
-
-				if (iNextKwd - ioffset != 0 + 1) {
-					sprintf(str, "expected 0 arguments following *EOS_LINEAR but got %d\n", iNextKwd - ioffset - 1);
-					error->all(FLERR, str);
-				}
-
-				if (comm->me == 0) {
-					printf(FORMAT2, "Linear EOS");
-					printf(FORMAT1, "Bulk modulus", Lookup[BULK_MODULUS][itype]);
-				}
-			} // end Linear EOS
-			else if (strcmp(arg[ioffset], "*STRENGTH_LINEAR_PLASTIC") == 0) {
-
-				/*
-				 * linear elastic / ideal plastic material model with strength
-				 */
-
-				strength[itype] = STRENGTH_LINEAR_PLASTIC;
-
-				t = string("*");
-				iNextKwd = -1;
-				for (iarg = ioffset + 1; iarg < narg; iarg++) {
-					s = string(arg[iarg]);
-					if (s.compare(0, t.length(), t) == 0) {
-						iNextKwd = iarg;
-						break;
-					}
-				}
-
-				if (iNextKwd < 0) {
-					sprintf(str, "no *KEYWORD terminates *STRENGTH_LINEAR_PLASTIC");
-					error->all(FLERR, str);
-				}
-
-				if (iNextKwd - ioffset != 3 + 1) {
-					sprintf(str, "expected 3 arguments following *STRENGTH_LINEAR_PLASTIC but got %d\n", iNextKwd - ioffset - 1);
-					error->all(FLERR, str);
-				}
-
-				Lookup[SHEAR_MODULUS][itype] = force->numeric(FLERR, arg[ioffset + 1]);
-				Lookup[YIELD_STRENGTH][itype] = force->numeric(FLERR, arg[ioffset + 2]);
-				Lookup[HARDENING_PARAMETER][itype] = force->numeric(FLERR, arg[ioffset + 3]);
-
-				if (comm->me == 0) {
-					printf(FORMAT2, "linear elastic / ideal plastic material mode");
-					printf(FORMAT1, "yield_strength", Lookup[YIELD_STRENGTH][itype]);
-					printf(FORMAT1, "constant hardening parameter", Lookup[HARDENING_PARAMETER][itype]);
-					printf(FORMAT1, "shear modulus", Lookup[SHEAR_MODULUS][itype]);
-				}
-			} // end *STRENGTH_LINEAR_PLASTIC
-			else if (strcmp(arg[ioffset], "*STRENGTH_LINEAR") == 0) {
-
-				/*
-				 * linear elastic / ideal plastic material model with strength
-				 */
-
-				strength[itype] = STRENGTH_LINEAR;
-				t = string("*");
-				iNextKwd = -1;
-				for (iarg = ioffset + 1; iarg < narg; iarg++) {
-					s = string(arg[iarg]);
-					if (s.compare(0, t.length(), t) == 0) {
-						iNextKwd = iarg;
-						break;
-					}
-				}
-
-				if (iNextKwd < 0) {
-					sprintf(str, "no *KEYWORD terminates *STRENGTH_LINEAR");
-					error->all(FLERR, str);
-				}
-
-				if (iNextKwd - ioffset != 1 + 1) {
-					sprintf(str, "expected 1 arguments following *STRENGTH_LINEAR but got %d\n", iNextKwd - ioffset - 1);
-					error->all(FLERR, str);
-				}
-
-				Lookup[SHEAR_MODULUS][itype] = force->numeric(FLERR, arg[ioffset + 1]);
-
-				if (comm->me == 0) {
-					printf(FORMAT2, "linear elastic strength model");
-					printf(FORMAT1, "shear modulus", Lookup[SHEAR_MODULUS][itype]);
-				}
-			} // end *STRENGTH_LINEAR
-			else if (strcmp(arg[ioffset], "*VISCOSITY_NEWTON") == 0) {
-
-				/*
-				 * linear elastic / ideal plastic material model with strength
-				 */
-
-				viscosity[itype] = VISCOSITY_NEWTON;
-				t = string("*");
-				iNextKwd = -1;
-				for (iarg = ioffset + 1; iarg < narg; iarg++) {
-					s = string(arg[iarg]);
-					if (s.compare(0, t.length(), t) == 0) {
-						iNextKwd = iarg;
-						break;
-					}
-				}
-
-				if (iNextKwd < 0) {
-					sprintf(str, "no *KEYWORD terminates *VISCOSITY_NEWTON");
-					error->all(FLERR, str);
-				}
-
-				if (iNextKwd - ioffset != 1 + 1) {
-					sprintf(str, "expected 1 arguments following *VISCOSITY_NEWTON but got %d\n", iNextKwd - ioffset - 1);
-					error->all(FLERR, str);
-				}
-
-				Lookup[VISCOSITY_MU][itype] = force->numeric(FLERR, arg[ioffset + 1]);
-
-				if (comm->me == 0) {
-					printf(FORMAT2, "Newton viscosity model");
-					printf(FORMAT1, "viscosity mu", Lookup[VISCOSITY_MU][itype]);
-				}
-			} // end *STRENGTH_VISCOSITY_NEWTON
-			else if (strcmp(arg[ioffset], "*HEAT_CONDUCTION") == 0) {
-
-				t = string("*");
-				iNextKwd = -1;
-				for (iarg = ioffset + 1; iarg < narg; iarg++) {
-					s = string(arg[iarg]);
-					if (s.compare(0, t.length(), t) == 0) {
-						iNextKwd = iarg;
-						break;
-					}
-				}
-
-				if (iNextKwd < 0) {
-					sprintf(str, "no *KEYWORD terminates *HEAT_CONDUCTION");
-					error->all(FLERR, str);
-				}
-
-				if (iNextKwd - ioffset != 1 + 1) {
-					sprintf(str, "expected 1 arguments following *HEAT_CONDUCTION but got %d\n", iNextKwd - ioffset - 1);
-					error->all(FLERR, str);
-				}
-
-				heat_conduction_coeff[itype] = force->numeric(FLERR, arg[ioffset + 1]);
-
-				if (comm->me == 0) {
-					printf(FORMAT2, "Fourier type heat conduction");
-					printf(FORMAT1, "kappa", heat_conduction_coeff[itype]);
-				}
-			} // end *HEAT_CONDUCTION
-
-			else {
-				sprintf(str, "unknown *KEYWORD: %s", arg[ioffset]);
-				error->all(FLERR, str);
-			}
-
-		}
-
-		/*
-		 * copy data which is looked up in inner pairwise loops from slow maps to fast arrays
-		 */
-
-		rho0[itype] = Lookup[REFERENCE_DENSITY][itype];
-		c0_type[itype] = Lookup[REFERENCE_SOUNDSPEED][itype];
 		setflag[itype][itype] = 1;
 
 		/*
 		 * error checks
 		 */
 
-		if ((viscosity[itype] != NONE) && (strength[itype] != NONE)) {
-			sprintf(str, "cannot have both a strength and viscosity model for particle type %d", itype);
-			error->all(FLERR, str);
-		}
-
-		if (eos[itype] == NONE) {
-			sprintf(str, "must specify an EOS for particle type %d", itype);
-			error->all(FLERR, str);
-		}
 
 	} else {
 		/*
@@ -2094,12 +1716,6 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 
 		itype = force->inumeric(FLERR, arg[0]);
 		jtype = force->inumeric(FLERR, arg[1]);
-
-		if (strcmp(arg[2], "*CROSS") != 0) {
-			sprintf(str, "mpm cross interaction between particle type %d and %d requested, however, *CROSS keyword is missing",
-					itype, jtype);
-			error->all(FLERR, str);
-		}
 
 		if (setflag[itype][itype] != 1) {
 			sprintf(str,

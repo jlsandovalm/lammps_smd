@@ -35,6 +35,7 @@ PairStyle(smd/mpm_linear,PairSmdMpmLin)
 #include <Eigen/Eigen>
 #include <Eigen/Dense>
 #include <Eigen/SVD>
+#include "SmdMatDB.h"
 
 using namespace Eigen;
 using namespace std;
@@ -53,7 +54,6 @@ public:
 	virtual double memory_usage();
 	int pack_forward_comm(int, int *, double *, int, int *);
 	void unpack_forward_comm(int, int, double *);
-	void AssembleStressTensor();
 	void *extract(const char *, int &);
 	void PreCompute();
 	void PreCompute_DensitySummation();
@@ -86,6 +86,7 @@ public:
 	void ComputeHeatGradientOnGrid();
 	void ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction);
 	void CheckSymmetryBC();
+	void UpdateStress();
 
 protected:
 
@@ -184,6 +185,8 @@ private:
 	// NO SLIP symmetry planes
 	bool noslip_symmetry_plane_y_plus_exists, noslip_symmetry_plane_y_minus_exists;
 	double noslip_symmetry_plane_y_plus_location, noslip_symmetry_plane_y_minus_location;
+
+	SmdMatDB matDB;
 
 };
 
