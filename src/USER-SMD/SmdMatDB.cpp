@@ -136,35 +136,48 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 		return -1;
 	}
 
+	gProps[itype].nu0 = ini.GetDoubleValue(sectionName.c_str(), "nu0", DOUBLE_NOT_FOUND);
+	if (gProps[itype].nu0 == DOUBLE_NOT_FOUND) {
+		printf("could not read nu0 for type %d\n", itype);
+		return -1;
+	}
+
 	gProps[itype].cp = ini.GetDoubleValue(sectionName.c_str(), "cp", DOUBLE_NOT_FOUND);
 	if (gProps[itype].cp == DOUBLE_NOT_FOUND) {
 		printf("could not read cp for type %d\n", itype);
 		return -1;
 	}
 
+	gProps[itype].K0 = gProps[itype].c0 * gProps[itype].c0 * gProps[itype].rho0;
+	gProps[itype].G0 = 3.0 * gProps[itype].K0 * (1.0 - 2.0 * gProps[itype].nu0) / (2.0 * (1.0 + gProps[itype].nu0));
+
 	// read EOS
 	string eosName = ini.GetValue(sectionName.c_str(), "EOS", STRING_NOT_FOUND);
 	cout << "EOS is " << eosName << endl;
-	retVal = ini.GetSectionSize(eosName.c_str());
-	if (retVal < 0) {
-		printf("EOS could not be found\n");
-		return -1;
-	} else {
-		printf("eos could be found\n");
-		gProps[itype].eosName = eosName;
+	if (eosName != "NONE") {
+		retVal = ini.GetSectionSize(eosName.c_str());
+		if (retVal < 0) {
+			printf("EOS could not be found\n");
+			return -1;
+		} else {
+			printf("eos could be found\n");
+			gProps[itype].eosName = eosName;
+		}
 	}
 
 	// read STRENGTH
 	string strengthName = ini.GetValue(sectionName.c_str(), "STRENGTH", STRING_NOT_FOUND);
 	cout << "STRENGTH is " << strengthName << endl;
 
-	retVal = ini.GetSectionSize(strengthName.c_str());
-	if (retVal < 0) {
-		printf("Strength could not be found\n");
-		return -1;
-	} else {
-		printf("Strength could be found\n");
-		gProps[itype].strengthName = strengthName;
+	if (strengthName != "NONE") {
+		retVal = ini.GetSectionSize(strengthName.c_str());
+		if (retVal < 0) {
+			printf("Strength could not be found\n");
+			return -1;
+		} else {
+			printf("Strength could be found\n");
+			gProps[itype].strengthName = strengthName;
+		}
 	}
 
 	return 1;
@@ -174,16 +187,20 @@ int SmdMatDB::ReadEoss(CSimpleIni &ini, const int itype) {
 
 	// we already know that the section exists
 	string section = gProps[itype].eosName;
-	int EosId = ini.GetLongValue(section.c_str(), "EosId", LONG_NOT_FOUND);
-	if (EosId == LONG_NOT_FOUND) {
-		printf("Missing EosId in eos model\n");
-		return -1;
-	} else {
-		if (EosId == 1) {
-			// this is the Linear EOS
-			return ReadEosLinear(ini, itype);
+
+	if (section != "NONE") {
+		int EosId = ini.GetLongValue(section.c_str(), "EosId", LONG_NOT_FOUND);
+		if (EosId == LONG_NOT_FOUND) {
+			printf("Missing EosId in eos model\n");
+			return -1;
 		} else {
-			printf("EosId = %d unknown\n", EosId);
+			if (EosId == 1) {
+				// this is the Linear EOS
+				return ReadEosLinear(ini, itype);
+			} else {
+				printf("EosId = %d unknown\n", EosId);
+				return -1;
+			}
 		}
 	}
 
@@ -220,16 +237,20 @@ int SmdMatDB::ReadStrengths(CSimpleIni &ini, const int itype) {
 
 	// we already know that the section exists
 	string section = gProps[itype].strengthName;
-	int MatId = ini.GetLongValue(section.c_str(), "MatId", LONG_NOT_FOUND);
-	if (MatId == LONG_NOT_FOUND) {
-		printf("Missing MatId in strength model\n");
-		return -1;
-	} else {
-		if (MatId == 1) {
-			// this is the Linear EOS
-			return ReadStrengthLinear(ini, itype);
+
+	if (section != "NONE") {
+		int MatId = ini.GetLongValue(section.c_str(), "MatId", LONG_NOT_FOUND);
+		if (MatId == LONG_NOT_FOUND) {
+			printf("Missing MatId in strength model\n");
+			return -1;
 		} else {
-			printf("MatId = %d unknown\n", MatId);
+			if (MatId == 1) {
+				// this is the Linear EOS
+				return ReadStrengthLinear(ini, itype);
+			} else {
+				printf("MatId = %d unknown\n", MatId);
+				return -1;
+			}
 		}
 	}
 
@@ -291,8 +312,7 @@ void SmdMatDB::PrintData() {
 
 }
 
-void SmdMatDB::ComputePressure(const double mu, const double temperature, const int itype,
-		double &pressure, double &K_eff) {
+void SmdMatDB::ComputePressure(const double mu, const double temperature, const int itype, double &pressure, double &K_eff) {
 
 	int eosType = gProps[itype].eosType;
 	int eosIdx = gProps[itype].eosTypeIdx;
@@ -303,8 +323,7 @@ void SmdMatDB::ComputePressure(const double mu, const double temperature, const 
 	}
 }
 
-void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype,
-		Matrix3d &stressIncrement) {
+void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, Matrix3d &stressIncrement) {
 
 	int strengthType = gProps[itype].strengthType;
 	int strengthIdx = gProps[itype].strengthTypeIdx;

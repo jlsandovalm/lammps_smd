@@ -79,10 +79,7 @@ group           surface type 2
 ####################################################################################################
 pair_style      hybrid/overlay smd/tri_surface 1.0 &
                 smd/mpm_linear ${mpm_cellsize} FLIP 0.99
-pair_coeff      1 1 smd/mpm_linear   *COMMON ${rho} ${c0} ${q1} ${cp} ${hg} &
-                              *EOS_TAIT 2 &
-                              *STRENGTH_LINEAR ${K} &
-	                      *END
+pair_coeff      1 1 smd/mpm_linear
 pair_coeff      2 2 none
 pair_coeff      1 2 smd/tri_surface ${contact_stiffness} ${wall_temperature} ${friction_coeff}
 
@@ -99,13 +96,12 @@ fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment 
 ####################################################################################################
 variable        dumpFreq equal 10
 compute 	rho all smd/rho
-compute 	nn all smd/ulsph_num_neighs # number of neighbors for each particle
 compute         contact_radius all smd/contact_radius
 compute         surface_coords surface smd/triangle_vertices
 
 
 dump 		dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz &
-			c_rho c_nn c_contact_radius proc
+			c_rho c_contact_radius proc
 dump_modify 	dump_id first yes
 
 dump            surf_dump surface custom 999999999 surface.LAMMPS id type mol x y z  &

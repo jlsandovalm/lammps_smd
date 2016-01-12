@@ -71,13 +71,8 @@ enum {
 PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 		Pair(lmp) {
 
-	// per-type arrays
-	Q1 = NULL;
-	eos = viscosity = strength = NULL;
 	J = NULL;
 	vol = NULL;
-	heat_conduction_coeff = NULL;
-	Lookup = NULL;
 
 	nmax = 0; // make sure no atom on this proc such that initial memory allocation is correct
 	stressTensor = L = F = NULL;
@@ -173,14 +168,6 @@ PairSmdMpmLin::~PairSmdMpmLin() {
 
 	if (allocated) {
 		//printf("... deallocating\n");
-		memory->destroy(Q1);
-		memory->destroy(rho0);
-		memory->destroy(eos);
-		memory->destroy(viscosity);
-		memory->destroy(strength);
-		memory->destroy(heat_conduction_coeff);
-		memory->destroy(Lookup);
-
 		delete[] stressTensor;
 		delete[] L;
 		delete[] F;
@@ -1150,50 +1137,6 @@ void PairSmdMpmLin::compute(int eflag, int vflag) {
 	MUSL();
 }
 
-void PairSmdMpmLin::USF() {
-
-//	CreateGrid();
-//
-//	timeone_PointstoGrid -= MPI_Wtime();
-//	PointsToGrid();
-//	//ApplyVelocityBC();
-//	timeone_PointstoGrid += MPI_Wtime();
-//	//DumpGrid();
-//
-//	timeone_SymmetryBC -= MPI_Wtime();
-//	//ApplySymmetryBC(COPY_VELOCITIES);
-//	timeone_SymmetryBC += MPI_Wtime();
-//
-//	timeone_Gradients -= MPI_Wtime();
-//	ComputeVelocityGradient(); // using current velocities
-//	timeone_Gradients += MPI_Wtime();
-//	UpdateDeformationGradient();
-//
-//	timeone_MaterialModel -= MPI_Wtime();
-//	GetStress();
-//	AssembleStressTensor();
-//	comm->forward_comm_pair(this);
-//	timeone_MaterialModel += MPI_Wtime();
-//
-//	timeone_GridForces -= MPI_Wtime();
-//	ComputeGridForces();
-//	timeone_GridForces += MPI_Wtime();
-//
-//	timeone_UpdateGrid -= MPI_Wtime();
-//	UpdateGridVelocities();
-//	timeone_UpdateGrid += MPI_Wtime();
-//
-//	timeone_SymmetryBC -= MPI_Wtime();
-//	//ApplySymmetryBC(COPY_VELOCITIES);
-//	timeone_SymmetryBC += MPI_Wtime();
-//
-//	timeone_GridToPoints -= MPI_Wtime();
-//	GridToPoints();
-//	timeone_GridToPoints += MPI_Wtime();
-//
-//	DestroyGrid();
-}
-
 void PairSmdMpmLin::MUSL() {
 	CreateGrid();
 
@@ -1395,7 +1338,7 @@ void PairSmdMpmLin::UpdateStress() {
 			/*
 			 * stable timestep based on viscosity
 			 */
-			if (viscosity[itype] != NONE) {
+			if (matDB.gProps[itype].viscType != 0) {
 				dtCFL = MIN(cellsize * cellsize * rho / (effectiveViscosity), dtCFL);
 			}
 
@@ -1413,7 +1356,8 @@ void PairSmdMpmLin::UpdateStress() {
 	int check_flag = 0;
 	for (itype = 1; itype <= atom->ntypes; itype++) {
 		if (setflag[itype][itype] == 1) {
-			p_wave_speed = sqrt(Lookup[BULK_MODULUS][itype] / Lookup[REFERENCE_DENSITY][itype]);
+
+			p_wave_speed = matDB.gProps[itype].c0;
 			dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
 			check_flag = 1;
 		}
@@ -1435,16 +1379,6 @@ void PairSmdMpmLin::allocate() {
 	int n = atom->ntypes;
 
 	memory->create(setflag, n + 1, n + 1, "pair:setflag");
-
-	memory->create(Q1, n + 1, "pair:Q1");
-	memory->create(rho0, n + 1, "pair:Q2");
-	memory->create(heat_conduction_coeff, n + 1, "pair:heat_conduction_coeff");
-	memory->create(eos, n + 1, "pair:eosmodel");
-	memory->create(viscosity, n + 1, "pair:viscositymodel");
-	memory->create(strength, n + 1, "pair:strengthmodel");
-
-	memory->create(Lookup, MAX_KEY_VALUE, n + 1, "pair:LookupTable");
-
 	memory->create(cutsq, n + 1, n + 1, "pair:cutsq"); // always needs to be allocated, even with granular neighborlist
 
 	/*
@@ -1452,7 +1386,6 @@ void PairSmdMpmLin::allocate() {
 	 */
 
 	for (int i = 1; i <= n; i++) {
-		heat_conduction_coeff[i] = 0.0;
 		for (int j = i; j <= n; j++) {
 			setflag[i][j] = 0;
 		}
@@ -1676,7 +1609,7 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 	char str[128];
 	std::string s, t;
 
-	if (narg < 3) {
+	if (narg < 2) {
 		sprintf(str, "number of arguments for pair mpm is too small!");
 		error->all(FLERR, str);
 	}
@@ -1690,7 +1623,6 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 	if (force->inumeric(FLERR, arg[0]) == force->inumeric(FLERR, arg[1])) {
 
 		itype = force->inumeric(FLERR, arg[0]);
-		eos[itype] = viscosity[itype] = strength[itype] = NONE;
 
 		if (comm->me == 0) {
 			printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
@@ -1912,8 +1844,8 @@ double PairSmdMpmLin::effective_shear_modulus(const Matrix3d d_dev, const Matrix
 	if (strain_increment > 1.0e-12) {
 		G_eff = 0.5 * sqrt(deltaStressDevSum / strain_increment);
 	} else {
-		if (strength[itype] != NONE) {
-			G_eff = Lookup[SHEAR_MODULUS][itype];
+		if (matDB.gProps[itype].strengthType != 0) {
+			G_eff = matDB.gProps[itype].G0;
 		} else {
 			G_eff = 0.0;
 		}
@@ -2107,9 +2039,9 @@ void PairSmdMpmLin::ComputeHeatGradientOnGrid() {
 //						printf("zz 2nd deriv. : %f\n", dzz);
 //					}
 
-					totalflux += dxx + dyy;
+					totalflux += dxx + dyy + dzz;
 
-					lgridnodes[icell].dheat_dt = dxx + dyy;
+					lgridnodes[icell].dheat_dt = dxx + dyy + dzz;
 				}
 			}
 		}

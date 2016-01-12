@@ -43,14 +43,22 @@ public:
 			rho0 = 0.0;
 			c0 = 0.0;
 			cp = 0.0;
-			strengthType = 0;
+			eosType = strengthType = viscType = 0;
+			G0 = 0.0;
+			K0 = 0.0;
+			nu0 = 0.0;
+			strengthName = "NONE";
+			eosName = "NONE";
 		}
 
 		double rho0;
 		double c0;
 		double cp; // heat capacity
-		int eosType, strengthType;
-		int eosTypeIdx, strengthTypeIdx;
+		double K0;
+		double G0;
+		double nu0;
+		int eosType, strengthType, viscType;
+		int eosTypeIdx, strengthTypeIdx, viscTypeIdx;
 		std::string strengthName, eosName;
 
 	};
