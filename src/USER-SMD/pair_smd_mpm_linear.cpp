@@ -61,7 +61,7 @@ using namespace Eigen;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define BIG 1.0e22
-#define MASS_CUTOFF 1.0e-16
+#define MASS_CUTOFF 1.0e-12
 #define FACTOR 1
 
 enum {
@@ -81,7 +81,7 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	heat_gradient = NULL;
 	particleHeat = particleHeatRate = NULL;
 
-	comm_forward = 16; // this pair style communicates 16 doubles to ghost atoms
+	comm_forward = 19; // this pair style communicates 16 doubles to ghost atoms
 
 	timeone_PointstoGrid = timeone_Gradients = timeone_MaterialModel = timeone_GridForces = timeone_UpdateGrid =
 			timeone_GridToPoints = 0.0;
@@ -222,6 +222,7 @@ void PairSmdMpmLin::CreateGrid() {
 
 	if (symmetry_plane_x_minus_exists) {
 		if (maxx > symmetry_plane_x_minus_location + 0.1 * cellsize) {
+			printf("maxx=%f\n", maxx);
 			error->one(FLERR, "Cannot have particle or box boundary above x- symmetry plane.");
 		}
 		maxx = symmetry_plane_x_minus_location;
@@ -278,6 +279,7 @@ void PairSmdMpmLin::CreateGrid() {
 
 void PairSmdMpmLin::PointsToGrid() {
 	double **v = atom->v;
+	double **vest = atom->vest;
 	double *rmass = atom->rmass;
 	double *heat = atom->heat;
 	int *type = atom->type;
@@ -285,7 +287,7 @@ void PairSmdMpmLin::PointsToGrid() {
 	int nall = nlocal + atom->nghost;
 	int ref_node;
 	double wfx[4], wfy[4], wfz[4];
-	Vector3d vel_particle;
+	Vector3d vel_particle, vel_particle_est;
 
 	for (int icell = 0; icell < Ncells; icell++) {
 		lgridnodes[icell].mass = 0.0;
@@ -293,6 +295,7 @@ void PairSmdMpmLin::PointsToGrid() {
 		lgridnodes[icell].dheat_dt = 0.0;
 		lgridnodes[icell].f.setZero();
 		lgridnodes[icell].v.setZero();
+		lgridnodes[icell].vest.setZero();
 		lgridnodes[icell].isVelocityBC = false;
 	}
 
@@ -306,6 +309,8 @@ void PairSmdMpmLin::PointsToGrid() {
 			double particle_heat = particle_mass * heat[i];
 			vel_particle << v[i][0], v[i][1], v[i][2];
 			vel_particle *= particle_mass;
+			vel_particle_est << vest[i][0], vest[i][1], vest[i][2];
+			vel_particle_est *= particle_mass;
 
 			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
 
@@ -323,6 +328,7 @@ void PairSmdMpmLin::PointsToGrid() {
 						}
 
 						lgridnodes[node_index].v += wf * vel_particle;
+						lgridnodes[node_index].vest += wf * vel_particle_est;
 						lgridnodes[node_index].mass += wf * particle_mass;
 						lgridnodes[node_index].heat += wf * particle_heat;
 					}
@@ -336,8 +342,9 @@ void PairSmdMpmLin::PointsToGrid() {
 	for (int icell = 0; icell < Ncells; icell++) {
 		if (lgridnodes[icell].mass > MASS_CUTOFF) {
 			lgridnodes[icell].imass = 1.0 / lgridnodes[icell].mass;
-			lgridnodes[icell].v /= lgridnodes[icell].mass;
-			lgridnodes[icell].heat /= lgridnodes[icell].mass;
+			lgridnodes[icell].v *= lgridnodes[icell].imass;
+			lgridnodes[icell].vest *= lgridnodes[icell].imass;
+			lgridnodes[icell].heat *= lgridnodes[icell].imass;
 		}
 	}
 
@@ -397,7 +404,7 @@ void PairSmdMpmLin::VelocitiesToGrid() {
 	for (int icell = 0; icell < Ncells; icell++) {
 		if (lgridnodes[icell].mass > MASS_CUTOFF) {
 			lgridnodes[icell].imass = 1.0 / lgridnodes[icell].mass;
-			lgridnodes[icell].v /= lgridnodes[icell].mass;
+			lgridnodes[icell].v *= lgridnodes[icell].imass;
 		}
 	}
 
@@ -570,7 +577,8 @@ void PairSmdMpmLin::ComputeVelocityGradient() {
 						g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
 
 						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
-						velocity_gradient += lgridnodes[node_index].v * g.transpose();
+						//velocity_gradient += lgridnodes[node_index].v * g.transpose();
+						velocity_gradient += lgridnodes[node_index].vest * g.transpose();
 					}
 				}
 			}
@@ -723,6 +731,47 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 			Fincr = (update->dt * L[i]).exp();
 			F = Fincr * Map<Matrix3d>(smd_data_9[i]);
 			J[i] = F.determinant();
+
+//			if (symmetry_plane_x_plus_exists) {
+//				if (x[i][0] < symmetry_plane_x_plus_location) {
+//					x[i][0] = symmetry_plane_x_plus_location;
+//					v[i][0] = 0.0;
+//					//J[i] = 0.5;
+//				}
+//			}
+//			if (symmetry_plane_x_minus_exists) {
+//				if (x[i][0] > symmetry_plane_x_minus_location) {
+//					x[i][0] = symmetry_plane_x_minus_location;
+//					v[i][0] = 0.0;
+//					//J[i] = 0.5;
+//				}
+//			}
+//			if (symmetry_plane_y_plus_exists) {
+//				if (x[i][1] < symmetry_plane_y_plus_location) {
+//					x[i][1] = symmetry_plane_y_plus_location;
+//					v[i][1] = 0.0;
+//					//printf("contact!\n");
+//					//J[i] = 0.5;
+//				}
+//			}
+//			if (symmetry_plane_y_minus_exists) {
+//				if (x[i][1] > symmetry_plane_y_minus_location) {
+//					x[i][1] = symmetry_plane_y_minus_location;
+//					v[i][1] = 0.0;
+//					//J[i] = 0.5;
+//				}
+//			}
+//			if (symmetry_plane_z_plus_exists) {
+//				if (x[i][2] < symmetry_plane_z_plus_location) {
+//					v[i][2] = 0.0;
+//				}
+//			}
+//			if (symmetry_plane_z_minus_exists) {
+//				if (x[i][2] > symmetry_plane_z_minus_location) {
+//					v[i][2] = 0.0;
+//				}
+//			}
+
 			vol[i] = vol0[i] * J[i];
 
 			//cout << "this is F after update" << endl << F << endl;
@@ -787,7 +836,61 @@ void PairSmdMpmLin::compute(int eflag, int vflag) {
 		vol = new double[nmax];
 	}
 
-	MUSL();
+	//MUSL();
+	USF();
+}
+
+void PairSmdMpmLin::USF() {
+	CreateGrid();
+
+	timeone_PointstoGrid -= MPI_Wtime();
+	PointsToGrid();
+	ComputeHeatGradientOnGrid();
+	timeone_PointstoGrid += MPI_Wtime();
+
+	timeone_SymmetryBC -= MPI_Wtime();
+	CheckSymmetryBC();
+	timeone_SymmetryBC += MPI_Wtime();
+
+	timeone_Gradients -= MPI_Wtime();
+	ComputeVelocityGradient();
+	timeone_Gradients += MPI_Wtime();
+
+	timeone_MaterialModel -= MPI_Wtime();
+	UpdateDeformationGradient();
+	UpdateStress();
+	timeone_MaterialModel += MPI_Wtime();
+
+	timeone_Comm -= MPI_Wtime();
+	comm->forward_comm_pair(this); // need to have stress tensor on ghosts
+	timeone_Comm += MPI_Wtime();
+
+	timeone_GridForces -= MPI_Wtime();
+	ComputeGridForces();
+	timeone_GridForces += MPI_Wtime();
+
+	timeone_SymmetryBC -= MPI_Wtime();
+	CheckSymmetryBC();
+	timeone_SymmetryBC += MPI_Wtime();
+
+	timeone_UpdateGrid -= MPI_Wtime();
+	UpdateGridVelocities(); // full step
+	timeone_UpdateGrid += MPI_Wtime();
+
+	timeone_SymmetryBC -= MPI_Wtime();
+	CheckSymmetryBC();
+	timeone_SymmetryBC += MPI_Wtime();
+
+	timeone_GridToPoints -= MPI_Wtime();
+	GridToPoints();
+	timeone_GridToPoints += MPI_Wtime();
+
+	timeone_UpdateParticles -= MPI_Wtime();
+	AdvanceParticles(); // full step
+	AdvanceParticlesEnergy();
+	timeone_UpdateParticles += MPI_Wtime();
+
+	DestroyGrid();
 }
 
 void PairSmdMpmLin::MUSL() {
@@ -893,7 +996,7 @@ void PairSmdMpmLin::GetStress() {
 }
 
 /* ----------------------------------------------------------------------
- Assemble total stress tensor with pressure, material sterength, and
+ Assemble total stress tensor with pressure, material strength, and
  viscosity contributions.
  ------------------------------------------------------------------------- */
 void PairSmdMpmLin::UpdateStress() {
@@ -1438,6 +1541,10 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 		buf[m++] = x[j][1];
 		buf[m++] = x[j][2];
 
+		buf[m++] = particleVelocities[j](0);
+		buf[m++] = particleVelocities[j](1);
+		buf[m++] = particleVelocities[j](2);
+
 	}
 	return m;
 }
@@ -1477,6 +1584,10 @@ void PairSmdMpmLin::unpack_forward_comm(int n, int first, double *buf) {
 		x[i][0] = buf[m++];
 		x[i][1] = buf[m++];
 		x[i][2] = buf[m++];
+
+		particleVelocities[i](0) = buf[m++];
+		particleVelocities[i](1) = buf[m++];
+		particleVelocities[i](2) = buf[m++];
 
 	}
 }
@@ -1551,6 +1662,7 @@ void PairSmdMpmLin::AdvanceParticles() {
 	tagint *mol = atom->molecule;
 	double **x = atom->x;
 	double **v = atom->v;
+	double **vest = atom->vest;
 	double *heat = atom->heat;
 	double scale, vsq;
 
@@ -1599,6 +1711,10 @@ void PairSmdMpmLin::AdvanceParticles() {
 				if (flag3d)
 					x[i][2] += dtv * particleVelocities[i](2);
 
+				vest[i][0] = particleVelocities[i](0) + dtv * particleAccelerations[i](0);
+				vest[i][1] = particleVelocities[i](1) + dtv * particleAccelerations[i](1);
+				vest[i][2] = particleVelocities[i](2) + dtv * particleAccelerations[i](2);
+
 				if (vlimit > 0.0) {
 					vsq = v[i][0] * v[i][0] + v[i][1] * v[i][1] + v[i][2] * v[i][2];
 					if (vsq > vlimitsq) {
@@ -1624,28 +1740,28 @@ void PairSmdMpmLin::AdvanceParticles() {
 						//v[i][0] = 0.0;
 					}
 				}
-				if (symmetry_plane_y_plus_exists) {
-					if (x[i][1] < symmetry_plane_y_plus_location) {
-						x[i][1] = symmetry_plane_y_plus_location;
-						//particleVelocities[i](1) = 0.0;
-						//v[i][1] = 0.0;
-					}
-				}
-				if (symmetry_plane_y_minus_exists) {
-					if (x[i][1] > symmetry_plane_y_minus_location) {
-						v[i][1] = 0.0;
-					}
-				}
-				if (symmetry_plane_z_plus_exists) {
-					if (x[i][2] < symmetry_plane_z_plus_location) {
-						v[i][2] = 0.0;
-					}
-				}
-				if (symmetry_plane_z_minus_exists) {
-					if (x[i][2] > symmetry_plane_z_minus_location) {
-						v[i][2] = 0.0;
-					}
-				}
+//				if (symmetry_plane_y_plus_exists) {
+//					if (x[i][1] < symmetry_plane_y_plus_location) {
+//						x[i][1] = symmetry_plane_y_plus_location;
+//						//particleVelocities[i](1) = 0.0;
+//						//v[i][1] = 0.0;
+//					}
+//				}
+//				if (symmetry_plane_y_minus_exists) {
+//					if (x[i][1] > symmetry_plane_y_minus_location) {
+//						v[i][1] = 0.0;
+//					}
+//				}
+//				if (symmetry_plane_z_plus_exists) {
+//					if (x[i][2] < symmetry_plane_z_plus_location) {
+//						v[i][2] = 0.0;
+//					}
+//				}
+//				if (symmetry_plane_z_minus_exists) {
+//					if (x[i][2] > symmetry_plane_z_minus_location) {
+//						v[i][2] = 0.0;
+//					}
+//				}
 
 				//heat[i] = PIC_contribution * particleHeat[i] + FLIP_contribution * (heat[i] + dtv * particleHeatRate[i]);
 				heat[i] += dtv * particleHeatRate[i];
@@ -1817,34 +1933,119 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 
 	if (direction == Xplus) {
 		lgridnodes[icell].v(0) = 0.0;
+		lgridnodes[icell].vest(0) = 0.0;
 		lgridnodes[icell].f(0) = 0.0;
 		// mirror velocity of nodes on the +-side to the -side
 		int source = ix + 1;
 		int target = ix - 1;
 		int sourcecell = source + iy * grid_nx + iz * grid_nx * grid_ny;
 		int targetcell = target + iy * grid_nx + iz * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(0) = lgridnodes[sourcecell].v(0);
-		lgridnodes[targetcell].f(0) = lgridnodes[sourcecell].f(0);
+
+		if ((sourcecell < 0) || (sourcecell >= Ncells)) { // memory access error check
+			printf("source cell %d outside allowed range %d to %d\n", sourcecell, 0, Ncells);
+			exit(1);
+		}
+		if ((targetcell < 0) || (targetcell >= Ncells)) { // memory access error check
+			printf("target cell %d outside allowed range %d to %d\n", targetcell, 0, Ncells);
+			exit(1);
+		}
+
+		lgridnodes[targetcell].v(0) = -lgridnodes[sourcecell].v(0);
+		lgridnodes[targetcell].vest(0) = -lgridnodes[sourcecell].vest(0);
+		lgridnodes[targetcell].f(0) = -lgridnodes[sourcecell].f(0);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
+
+		source = ix + 2;
+		target = ix - 2;
+		sourcecell = source + iy * grid_nx + iz * grid_nx * grid_ny;
+		targetcell = target + iy * grid_nx + iz * grid_nx * grid_ny;
+
+		if ((sourcecell < 0) || (sourcecell >= Ncells)) { // memory access error check
+			printf("source cell %d outside allowed range %d to %d\n", sourcecell, 0, Ncells);
+			exit(1);
+		}
+		if ((targetcell < 0) || (targetcell >= Ncells)) { // memory access error check
+			printf("target cell %d outside allowed range %d to %d\n", targetcell, 0, Ncells);
+			exit(1);
+		}
+
+		lgridnodes[targetcell].v(0) = -lgridnodes[sourcecell].v(0);
+		lgridnodes[targetcell].vest(0) = -lgridnodes[sourcecell].vest(0);
+		lgridnodes[targetcell].f(0) = -lgridnodes[sourcecell].f(0);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
+
 	} else if (direction == Xminus) {
 		lgridnodes[icell].v(0) = 0.0;
+		lgridnodes[icell].vest(0) = 0.0;
 		lgridnodes[icell].f(0) = 0.0;
 		// mirror velocity of nodes on the +-side to the -side
 		int source = ix - 1;
 		int target = ix + 1;
 		int sourcecell = source + iy * grid_nx + iz * grid_nx * grid_ny;
 		int targetcell = target + iy * grid_nx + iz * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(0) = lgridnodes[sourcecell].v(0);
-		lgridnodes[targetcell].f(0) = lgridnodes[sourcecell].f(0);
+
+		if ((sourcecell < 0) || (sourcecell >= Ncells)) { // memory access error check
+			printf("source cell %d outside allowed range %d to %d\n", sourcecell, 0, Ncells);
+			exit(1);
+		}
+		if ((targetcell < 0) || (targetcell >= Ncells)) { // memory access error check
+			printf("target cell %d outside allowed range %d to %d\n", targetcell, 0, Ncells);
+			exit(1);
+		}
+
+		lgridnodes[targetcell].v(0) = -lgridnodes[sourcecell].v(0);
+		lgridnodes[targetcell].vest(0) = -lgridnodes[sourcecell].vest(0);
+		lgridnodes[targetcell].f(0) = -lgridnodes[sourcecell].f(0);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
+
+		source = ix - 2;
+		target = ix + 2;
+		sourcecell = source + iy * grid_nx + iz * grid_nx * grid_ny;
+		targetcell = target + iy * grid_nx + iz * grid_nx * grid_ny;
+
+		if ((sourcecell < 0) || (sourcecell >= Ncells)) { // memory access error check
+			printf("source cell %d outside allowed range %d to %d\n", sourcecell, 0, Ncells);
+			exit(1);
+		}
+		if ((targetcell < 0) || (targetcell >= Ncells)) { // memory access error check
+			printf("target cell %d outside allowed range %d to %d\n", targetcell, 0, Ncells);
+			exit(1);
+		}
+
+		lgridnodes[targetcell].v(0) = -lgridnodes[sourcecell].v(0);
+		lgridnodes[targetcell].vest(0) = -lgridnodes[sourcecell].vest(0);
+		lgridnodes[targetcell].f(0) = -lgridnodes[sourcecell].f(0);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
+
 	} else if (direction == Yplus) {
 		lgridnodes[icell].v(1) = 0.0;
+		lgridnodes[icell].vest(1) = 0.0;
 		lgridnodes[icell].f(1) = 0.0;
 		// mirror velocity of nodes on the +-side to the -side
 		int source = iy + 1;
 		int target = iy - 1;
 		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
 		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(1) = lgridnodes[sourcecell].v(1);
-		lgridnodes[targetcell].f(1) = lgridnodes[sourcecell].f(1);
+
+		if ((sourcecell < 0) || (sourcecell >= Ncells)) { // memory access error check
+			printf("source cell %d outside allowed range %d to %d\n", sourcecell, 0, Ncells);
+			exit(1);
+		}
+		if ((targetcell < 0) || (targetcell >= Ncells)) { // memory access error check
+			printf("target cell %d outside allowed range %d to %d\n", targetcell, 0, Ncells);
+			exit(1);
+		}
+
+		lgridnodes[targetcell].v(1) = -lgridnodes[sourcecell].v(1);
+		lgridnodes[targetcell].vest(1) = -lgridnodes[sourcecell].vest(1);
+		lgridnodes[targetcell].f(1) = -lgridnodes[sourcecell].f(1);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
+
 	} else if (direction == Yminus) {
 		lgridnodes[icell].v(1) = 0.0;
 		lgridnodes[icell].f(1) = 0.0;
@@ -1853,8 +2054,21 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int target = iy + 1;
 		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
 		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(1) = lgridnodes[sourcecell].v(1);
-		lgridnodes[targetcell].f(1) = lgridnodes[sourcecell].f(1);
+
+		if ((sourcecell < 0) || (sourcecell >= Ncells)) { // memory access error check
+			printf("source cell %d outside allowed range %d to %d\n", sourcecell, 0, Ncells);
+			exit(1);
+		}
+		if ((targetcell < 0) || (targetcell >= Ncells)) { // memory access error check
+			printf("target cell %d outside allowed range %d to %d\n", targetcell, 0, Ncells);
+			exit(1);
+		}
+
+		lgridnodes[targetcell].v(1) = -lgridnodes[sourcecell].v(1);
+		lgridnodes[targetcell].vest(1) = -lgridnodes[sourcecell].vest(1);
+		lgridnodes[targetcell].f(1) = -lgridnodes[sourcecell].f(1);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
 	} else if (direction == Zplus) {
 		lgridnodes[icell].v(2) = 0.0;
 		lgridnodes[icell].f(2) = 0.0;
@@ -1863,8 +2077,10 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int target = iz - 1;
 		int sourcecell = ix + iy * grid_nx + source * grid_nx * grid_ny;
 		int targetcell = ix + iy * grid_nx + target * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(2) = lgridnodes[sourcecell].v(2);
-		lgridnodes[targetcell].f(2) = lgridnodes[sourcecell].f(2);
+		lgridnodes[targetcell].v(2) = -lgridnodes[sourcecell].v(2);
+		lgridnodes[targetcell].f(2) = -lgridnodes[sourcecell].f(2);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
 	} else if (direction == Zminus) {
 		lgridnodes[icell].v(2) = 0.0;
 		lgridnodes[icell].f(2) = 0.0;
@@ -1873,8 +2089,10 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int target = iz + 1;
 		int sourcecell = ix + iy * grid_nx + source * grid_nx * grid_ny;
 		int targetcell = ix + iy * grid_nx + target * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(2) = lgridnodes[sourcecell].v(2);
-		lgridnodes[targetcell].f(2) = lgridnodes[sourcecell].f(2);
+		lgridnodes[targetcell].v(2) = -lgridnodes[sourcecell].v(2);
+		lgridnodes[targetcell].f(2) = -lgridnodes[sourcecell].f(2);
+		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
+		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
 	}
 
 }

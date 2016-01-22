@@ -420,6 +420,7 @@ void SmdMatDB::PrintData() {
 
 		printf("... reference mass density is %f\n", gProps[itype].rho0);
 		printf("... reference speed of sound is %f\n", gProps[itype].c0);
+		printf("... reference shear modulus is %f\n", gProps[itype].G0);
 		printf("\n");
 
 		int eosType = gProps[itype].eosType;
@@ -524,6 +525,17 @@ void SmdMatDB::DetermineReferenceSoundspeed() {
 		}
 
 		gProps[itype].c0 = sqrt(gProps[itype].K0 / gProps[itype].rho0);
+
+		int strengthType = gProps[itype].strengthType;
+		if (strengthType > 0) {
+			int idx = gProps[itype].strengthTypeIdx;
+			if (strengthType == 1) { // linear elastic
+				gProps[itype].G0 = strengthLinear_vec[idx].G;
+			} else if (strengthType == 2) { // simple plasticity model
+				gProps[itype].G0 = strengthSimplePlasticity_vec[idx].G;
+			}
+		}
+
 	}
 
 }

@@ -72,6 +72,7 @@ public:
 	void ApplyVelocityBC();
 	void SolveHeatEquation();
 	void MUSL();
+	void USF();
 
 	void AdvanceParticles();
 	void AdvanceParticlesEnergy();
@@ -118,7 +119,7 @@ private:
 
 	struct Gridnode {
 		double mass, heat, dheat_dt, imass;
-		Vector3d v, f;
+		Vector3d v, vest, f;
 		bool isVelocityBC;
 	};
 

@@ -18,14 +18,14 @@ boundary        f f p
 atom_style      smd
 comm_modify     vel yes
 newton          off
-comm_style      tiled
+comm_style      brick
 
 ####################################################################################################
 # CREATE SIMULATION BOX
 ####################################################################################################
 # create simulation box, a container, and a water column
 variable        l0 equal 0.01# initial particle lattice spacing
-region          box block 0 1 0 2 -0.001 0.001 units box
+region          box block -0.01 2.01 -0.01 2.01 -0.001 0.001 units box
 create_box      1 box
 
 ####################################################################################################
@@ -65,14 +65,10 @@ variable        mpm_cellsize equal 1*${l0}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1 &
-                FLIP 0.99
+pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1.01 &
+                FLIP 0.99 2d
 pair_coeff      1 1 
 
-# *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
-#                              *EOS_TAIT 7 &
-#				*VISCOSITY_NEWTON 0.5 &
-#	                      *END
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
@@ -110,12 +106,10 @@ thermo_modify   lost ignore
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
-run             1
-fix             balance_fix all balance 1000 0.9 rcb # load balancing for MPI
+run             5000
+#fix             balance_fix all balance 1000 0.9 rcb # load balancing for MPI
 
 #run 400
 #dump_modify     dump_id every 1
 
-run 40000
-#
 #
