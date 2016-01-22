@@ -65,12 +65,13 @@ using namespace Eigen;
 #define FACTOR 1
 
 enum {
-	Xplus, Yplus, Zplus
+	Xplus, Yplus, Zplus, Xminus, Yminus, Zminus
 };
 
 PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 		Pair(lmp) {
 
+	iproc = comm->me;
 	J = NULL;
 	vol = NULL;
 
@@ -100,28 +101,28 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 
 	//printf("type %d, EOS %d\n", 1, matDB.gProps[1].EOS);
 
-	for (int itype = 1; itype < atom->ntypes + 1; itype++) {
-
-		printf("\ntype = %d\n", itype);
-		printf("material strength name is %s\n", matDB.gProps[itype].strengthName.c_str());
-		int strengthType = matDB.gProps[itype].strengthType;
-		int idx = matDB.gProps[itype].strengthTypeIdx;
-
-		if (strengthType == 1) { // linear elastic
-			printf("number of linear elastic material types: %lu\n", matDB.strengthLinear_vec.size());
-			printf("linear elastic youngs modulus %f\n", matDB.strengthLinear_vec[idx].E);
-			printf("linear elastic shear  modulus %f\n", matDB.strengthLinear_vec[idx].G);
-			printf("linear elastic Poisson ratio  %f\n", matDB.strengthLinear_vec[idx].nu);
-		}
-
-		int eosType = matDB.gProps[itype].eosType;
-		idx = matDB.gProps[itype].eosTypeIdx;
-
-		if (eosType == 1) { // linear elastic
-			printf("number of linear eos types: %lu\n", matDB.eosLinear_vec.size());
-			printf("linear eos bulk modulus %f\n", matDB.eosLinear_vec[idx].K);
-		}
-	}
+//	for (int itype = 1; itype < atom->ntypes + 1; itype++) {
+//
+//		printf("\ntype = %d\n", itype);
+//		printf("material strength name is %s\n", matDB.gProps[itype].strengthName.c_str());
+//		int strengthType = matDB.gProps[itype].strengthType;
+//		int idx = matDB.gProps[itype].strengthTypeIdx;
+//
+//		if (strengthType == 1) { // linear elastic
+//			printf("number of linear elastic material types: %lu\n", matDB.strengthLinear_vec.size());
+//			printf("linear elastic youngs modulus %f\n", matDB.strengthLinear_vec[idx].E);
+//			printf("linear elastic shear  modulus %f\n", matDB.strengthLinear_vec[idx].G);
+//			printf("linear elastic Poisson ratio  %f\n", matDB.strengthLinear_vec[idx].nu);
+//		}
+//
+//		int eosType = matDB.gProps[itype].eosType;
+//		idx = matDB.gProps[itype].eosTypeIdx;
+//
+//		if (eosType == 1) { // linear elastic
+//			printf("number of linear eos types: %lu\n", matDB.eosLinear_vec.size());
+//			printf("linear eos bulk modulus %f\n", matDB.eosLinear_vec[idx].K);
+//		}
+//	}
 }
 
 /* ---------------------------------------------------------------------- */
@@ -143,7 +144,8 @@ PairSmdMpmLin::~PairSmdMpmLin() {
 
 	double time_sum = time_PointstoGrid + time_Gradients + time_MaterialModel + time_GridForces + time_UpdateGrid
 			+ time_GridToPoints + time_SymmetryBC + time_UpdateParticles + time_Comm;
-	if (comm->me == 0) {
+
+	if (iproc == 0) {
 		printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 		printf("... SMD / MPM CPU (NOT WALL CLOCK) TIMING STATISTICS\n\n");
 		printf("%20s is %10.2f seconds, %3.2f percent of pair time\n", "points to grid", time_PointstoGrid,
@@ -387,6 +389,7 @@ void PairSmdMpmLin::VelocitiesToGrid() {
 			// pre-compute all possible quantities
 			double particle_mass = rmass[i];
 			vel_particle << v[i][0], v[i][1], v[i][2];
+			//vel_particle = particleVelocities[i];
 			vel_particle *= particle_mass;
 
 			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
@@ -590,7 +593,7 @@ void PairSmdMpmLin::ComputeVelocityGradient() {
 						g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
 
 						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
-						velocity_gradient += lgridnodes[node_index].v * g.transpose(); // this is for USF
+						velocity_gradient += lgridnodes[node_index].v * g.transpose();
 					}
 				}
 			}
@@ -659,327 +662,6 @@ void PairSmdMpmLin::UpdateGridVelocities() {
 
 }
 
-void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction) {
-
-	if (direction == Yplus) {
-
-		lgridnodes[icell].v(1) = 0.0;
-		lgridnodes[icell].f(1) = 0.0;
-
-		// mirror velocity of nodes on the +-side to the -side
-		//
-		int source = iy + 1;
-		int target = iy - 1;
-		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
-		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(1) = lgridnodes[sourcecell].v(1);
-		lgridnodes[targetcell].f(1) = lgridnodes[sourcecell].f(1);
-	}
-
-}
-
-void PairSmdMpmLin::CheckSymmetryBC() {
-
-	if (symmetry_plane_y_plus_exists) {
-
-		/*
-		 * check if current grid extends to the symmetry plane
-		 */
-
-		double ssy = icellsize * symmetry_plane_y_plus_location - static_cast<double>(miniy); // shifted position in grid coords
-		int ssy_index = (int) ssy - 1;
-
-		//printf(" ssy index is %d\n", ssy_index);
-
-		if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
-
-			//printf("symmetry plane at coord %f is within background grid\n", symmetry_plane_y_plus_location);
-
-			for (int ix = 0; ix < grid_nx; ix++) {
-				for (int iz = 0; iz < grid_nz; iz++) {
-
-					int icell = ix + ssy_index * grid_nx + iz * grid_nx * grid_ny;
-
-					ApplySymmetryBC(icell, ix, ssy_index, iz, Yplus);
-
-				}
-
-			}
-
-			//ref_node = ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
-
-		}
-	}
-
-//	int iy, ix, iz, source, target;
-//	double px_shifted, py_shifted, pz_shifted;
-//
-//	if (symmetry_plane_y_plus_exists) {
-//
-//		// find y grid index corresponding location of y plus symmetry plane
-//		py_shifted = symmetry_plane_y_plus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
-//		iy = icellsize * py_shifted;
-//
-//		if ((iy < 0) || (iy >= grid_ny)) {
-//			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
-//			error->one(FLERR, "");
-//		}
-//
-//		for (ix = 0; ix < grid_nx; ix++) {
-//			for (iz = 0; iz < grid_nz; iz++) {
-//
-//				// set y velocity to zero in the symmetry plane
-//				gridnodes[ix][iy][iz].v(1) = 0.0;
-//				gridnodes[ix][iy][iz].vest(1) = 0.0;
-//				gridnodes[ix][iy][iz].f(1) = 0.0;
-//
-//				// mirror velocity of nodes on the +-side to the -side
-//
-//				source = iy + 1;
-//				target = iy - 1;
-//
-//				// check that cell indices are within bounds
-//				if ((source < 0) || (source >= grid_ny)) {
-//					printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
-//					error->one(FLERR, "");
-//				}
-//
-//				if ((target < 0) || (target >= grid_ny)) {
-//					printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
-//					error->one(FLERR, "");
-//				}
-//
-//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-//				gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
-//				gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
-//				gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
-//				gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
-//
-//			}
-//		}
-//	}
-//
-//	if (symmetry_plane_y_minus_exists) {
-//
-//		// find y grid index corresponding location of y plus symmetry plane
-//		py_shifted = symmetry_plane_y_minus_location - min_iy * cellsize + GRID_OFFSET * cellsize;
-//		iy = icellsize * py_shifted;
-//
-//		if ((iy < 0) || (iy >= grid_ny)) {
-//			printf("y cell index %d is outside range 0 .. %d\n", iy, grid_ny);
-//			error->one(FLERR, "");
-//		}
-//
-//		for (ix = 0; ix < grid_nx; ix++) {
-//			for (iz = 0; iz < grid_nz; iz++) {
-//
-//				// set y velocity to zero in the symmetry plane
-//				gridnodes[ix][iy][iz].v(1) = 0.0;
-//				gridnodes[ix][iy][iz].vest(1) = 0.0;
-//				gridnodes[ix][iy][iz].f(1) = 0.0;
-//
-//				// mirror velocity of nodes on the +-side to the -side
-//
-//				source = iy - 1;
-//				target = iy + 1;
-//
-//				// check that cell indices are within bounds
-//				if ((source < 0) || (source >= grid_ny)) {
-//					printf("map from y cell index %d is outside range 0 .. %d\n", source, grid_ny);
-//					error->one(FLERR, "");
-//				}
-//
-//				if ((target < 0) || (target >= grid_ny)) {
-//					printf("map to y cell index %d is outside range 0 .. %d\n", target, grid_ny);
-//					error->one(FLERR, "");
-//				}
-//
-//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-//				gridnodes[ix][target][iz].v(1) = -gridnodes[ix][source][iz].v(1);
-//				gridnodes[ix][target][iz].vest(1) = -gridnodes[ix][source][iz].vest(1);
-//				gridnodes[ix][target][iz].f(1) = -gridnodes[ix][source][iz].f(1);
-//				gridnodes[ix][target][iz].mass = gridnodes[ix][source][iz].mass;
-//
-//			}
-//		}
-//	}
-//
-//	if (symmetry_plane_x_plus_exists) {
-//
-//		// find x grid index corresponding location of x plus symmetry plane
-//		px_shifted = symmetry_plane_x_plus_location - min_ix * cellsize + GRID_OFFSET * cellsize;
-//		ix = icellsize * px_shifted;
-//
-//		if ((ix < 0) || (ix >= grid_nx)) {
-//			printf("x cell index %d is outside range 0 .. %d\n", ix, grid_nx);
-//			error->one(FLERR, "");
-//		}
-//
-//		for (iy = 0; iy < grid_ny; iy++) {
-//			for (iz = 0; iz < grid_nz; iz++) {
-//
-//				// set y velocity to zero in the symmetry plane
-//				gridnodes[ix][iy][iz].v(0) = 0.0;
-//				gridnodes[ix][iy][iz].vest(0) = 0.0;
-//				gridnodes[ix][iy][iz].f(0) = 0.0;
-//
-//				// mirror velocity of nodes on the +-side to the -side
-//
-//				source = ix + 1;
-//				target = ix - 1;
-//
-//				// check that cell indices are within bounds
-//				if ((source < 0) || (source >= grid_nx)) {
-//					printf("map from x cell index %d is outside range 0 .. %d\n", source, grid_nx);
-//					error->one(FLERR, "");
-//				}
-//
-//				if ((target < 0) || (target >= grid_nx)) {
-//					printf("map to x cell index %d is outside range 0 .. %d\n", target, grid_nx);
-//					error->one(FLERR, "");
-//				}
-//
-//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-//				gridnodes[target][iy][iz].v(0) = -gridnodes[source][iy][iz].v(0);
-//				gridnodes[target][iy][iz].vest(0) = -gridnodes[source][iy][iz].vest(0);
-//				gridnodes[target][iy][iz].f(0) = -gridnodes[source][iy][iz].f(0);
-//				gridnodes[target][iy][iz].mass = gridnodes[source][iy][iz].mass;
-//			}
-//		}
-//	}
-//
-//	if (symmetry_plane_x_minus_exists) {
-//
-//		// find x grid index corresponding location of x plus symmetry plane
-//		px_shifted = symmetry_plane_x_minus_location - min_ix * cellsize + GRID_OFFSET * cellsize;
-//		ix = icellsize * px_shifted;
-//
-//		if ((ix < 0) || (ix >= grid_nx)) {
-//			printf("x cell index %d is outside range 0 .. %d\n", ix, grid_nx);
-//			error->one(FLERR, "");
-//		}
-//
-//		for (iy = 0; iy < grid_ny; iy++) {
-//			for (iz = 0; iz < grid_nz; iz++) {
-//
-//				// set y velocity to zero in the symmetry plane
-//				gridnodes[ix][iy][iz].v(0) = 0.0;
-//				gridnodes[ix][iy][iz].vest(0) = 0.0;
-//				gridnodes[ix][iy][iz].f(0) = 0.0;
-//
-//				// mirror velocity of nodes on the +-side to the -side
-//
-//				source = ix - 1;
-//				target = ix + 1;
-//
-//				// check that cell indices are within bounds
-//				if ((source < 0) || (source >= grid_nx)) {
-//					printf("map from x cell index %d is outside range 0 .. %d\n", source, grid_nx);
-//					error->one(FLERR, "");
-//				}
-//
-//				if ((target < 0) || (target >= grid_nx)) {
-//					printf("map to x cell index %d is outside range 0 .. %d\n", target, grid_nx);
-//					error->one(FLERR, "");
-//				}
-//
-//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-//				gridnodes[target][iy][iz].v(0) = -gridnodes[source][iy][iz].v(0);
-//				gridnodes[target][iy][iz].vest(0) = -gridnodes[source][iy][iz].vest(0);
-//				gridnodes[target][iy][iz].f(0) = -gridnodes[source][iy][iz].f(0);
-//				gridnodes[target][iy][iz].mass = gridnodes[source][iy][iz].mass;
-//			}
-//		}
-//	}
-//
-//	if (symmetry_plane_z_plus_exists) {
-//		// find z grid index corresponding location of z plus symmetry plane
-//		pz_shifted = symmetry_plane_z_plus_location - min_iz * cellsize + GRID_OFFSET * cellsize;
-//		iz = icellsize * pz_shifted;
-//
-//		if ((iz < 0) || (iz >= grid_nz)) {
-//			printf("z cell index %d is outside range 0 .. %d\n", iz, grid_nz);
-//			error->one(FLERR, "");
-//		}
-//
-//		for (iy = 0; iy < grid_ny; iy++) {
-//			for (ix = 0; ix < grid_nx; ix++) {
-//
-//				// set y velocity to zero in the symmetry plane
-//				gridnodes[ix][iy][iz].v(2) = 0.0;
-//				gridnodes[ix][iy][iz].vest(2) = 0.0;
-//				gridnodes[ix][iy][iz].f(2) = 0.0;
-//
-//				// mirror velocity of nodes on the +-side to the -side
-//
-//				source = iz + 1;
-//				target = iz - 1;
-//
-//				// check that cell indices are within bounds
-//				if ((source < 0) || (source >= grid_nz)) {
-//					printf("map from z cell index %d is outside range 0 .. %d\n", source, grid_nz);
-//					error->one(FLERR, "");
-//				}
-//
-//				if ((target < 0) || (target >= grid_nz)) {
-//					printf("map to z cell index %d is outside range 0 .. %d\n", target, grid_nz);
-//					error->one(FLERR, "");
-//				}
-//
-//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-//				gridnodes[ix][iy][target].v(2) = -gridnodes[ix][iy][source].v(2);
-//				gridnodes[ix][iy][target].vest(2) = -gridnodes[ix][iy][source].vest(2);
-//				gridnodes[ix][iy][target].f(2) = -gridnodes[ix][iy][source].f(2);
-//				gridnodes[ix][iy][target].mass = gridnodes[ix][iy][source].mass;
-//			}
-//		}
-//	}
-//
-//	if (symmetry_plane_z_minus_exists) {
-//		// find z grid index corresponding location of z minus symmetry plane
-//		pz_shifted = symmetry_plane_z_minus_location - min_iz * cellsize + GRID_OFFSET * cellsize;
-//		iz = icellsize * pz_shifted;
-//
-//		if ((iz < 0) || (iz >= grid_nz)) {
-//			printf("z cell index %d is outside range 0 .. %d\n", iz, grid_nz);
-//			error->one(FLERR, "");
-//		}
-//
-//		for (iy = 0; iy < grid_ny; iy++) {
-//			for (ix = 0; ix < grid_nx; ix++) {
-//
-//				// set y velocity to zero in the symmetry plane
-//				gridnodes[ix][iy][iz].v(2) = 0.0;
-//				gridnodes[ix][iy][iz].vest(2) = 0.0;
-//				gridnodes[ix][iy][iz].f(2) = 0.0;
-//
-//				// mirror velocity of nodes on the +-side to the -side
-//
-//				source = iz - 1;
-//				target = iz + 1;
-//
-//				// check that cell indices are within bounds
-//				if ((source < 0) || (source >= grid_nz)) {
-//					printf("map from z cell index %d is outside range 0 .. %d\n", source, grid_nz);
-//					error->one(FLERR, "");
-//				}
-//
-//				if ((target < 0) || (target >= grid_nz)) {
-//					printf("map to z cell index %d is outside range 0 .. %d\n", target, grid_nz);
-//					error->one(FLERR, "");
-//				}
-//
-//				// we duplicate: (jy = iy + 1 -> ky = iy - 1)
-//				gridnodes[ix][iy][target].v(2) = -gridnodes[ix][iy][source].v(2);
-//				gridnodes[ix][iy][target].vest(2) = -gridnodes[ix][iy][source].vest(2);
-//				gridnodes[ix][iy][target].f(2) = -gridnodes[ix][iy][source].f(2);
-//				gridnodes[ix][iy][target].mass = gridnodes[ix][iy][source].mass;
-//			}
-//		}
-//	}
-
-}
-
 void PairSmdMpmLin::GridToPoints() {
 	double **f = atom->f;
 	double *rmass = atom->rmass;
@@ -1041,8 +723,7 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 	 * this is currently deactivated because the smd_data_9 array is used for storing
 	 * the APIC correction matrix Bp
 	 */
-//error->one(FLERR, "should not be here");
-// given the velocity gradient, update the deformation gradient
+
 	double **x = atom->x;
 	double **v = atom->v;
 	double **smd_data_9 = atom->smd_data_9;
@@ -1067,12 +748,6 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 			J[i] = F.determinant();
 			vol[i] = vol0[i] * J[i];
 
-			if (x[i][1] < symmetry_plane_y_plus_location) {
-				v[i][1] = 0.0;
-				//	J[i] = 2.0 * J[i];
-//				vol[i] = vol0[i] * J[i];
-			}
-
 			//cout << "this is F after update" << endl << F << endl;
 
 			smd_data_9[i][0] = F(0, 0);
@@ -1086,6 +761,7 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 			smd_data_9[i][6] = F(2, 0);
 			smd_data_9[i][7] = F(2, 1);
 			smd_data_9[i][8] = F(2, 2);
+
 		}
 
 	}
@@ -1208,6 +884,7 @@ void PairSmdMpmLin::MUSL() {
 
 void PairSmdMpmLin::GetStress() {
 	double **tlsph_stress = atom->smd_stress;
+	double **smd_visc_stress = atom->smd_visc_stress;
 	double **smd_data_9 = atom->smd_data_9;
 	double *vol0 = atom->vfrac;
 	int *type = atom->type;
@@ -1218,22 +895,24 @@ void PairSmdMpmLin::GetStress() {
 	for (i = 0; i < nlocal; i++) {
 		itype = type[i];
 		if (setflag[itype][itype] == 1) {
-			stressTensor[i](0, 0) = tlsph_stress[i][0];
-			stressTensor[i](0, 1) = tlsph_stress[i][1];
-			stressTensor[i](0, 2) = tlsph_stress[i][2];
-			stressTensor[i](1, 1) = tlsph_stress[i][3];
-			stressTensor[i](1, 2) = tlsph_stress[i][4];
-			stressTensor[i](2, 2) = tlsph_stress[i][5];
+			stressTensor[i](0, 0) = tlsph_stress[i][0] + smd_visc_stress[i][0];
+			stressTensor[i](0, 1) = tlsph_stress[i][1] + smd_visc_stress[i][1];
+			stressTensor[i](0, 2) = tlsph_stress[i][2] + smd_visc_stress[i][2];
+			stressTensor[i](1, 1) = tlsph_stress[i][3] + smd_visc_stress[i][3];
+			stressTensor[i](1, 2) = tlsph_stress[i][4] + smd_visc_stress[i][4];
+			stressTensor[i](2, 2) = tlsph_stress[i][5] + smd_visc_stress[i][5];
+
 			stressTensor[i](1, 0) = stressTensor[i](0, 1);
 			stressTensor[i](2, 0) = stressTensor[i](0, 2);
 			stressTensor[i](2, 1) = stressTensor[i](1, 2);
+
+			// need viscous stress here as well
 
 			F = Map<Matrix3d>(smd_data_9[i]);
 			J[i] = F.determinant();
 			vol[i] = vol0[i] * J[i];
 		}
 	}
-
 }
 
 /* ----------------------------------------------------------------------
@@ -1244,25 +923,25 @@ void PairSmdMpmLin::UpdateStress() {
 	double *rmass = atom->rmass;
 	double *eff_plastic_strain = atom->eff_plastic_strain;
 	double **tlsph_stress = atom->smd_stress;
+	double **smd_visc_stress = atom->smd_visc_stress;
 	//double *heat = atom->heat;
 	double *e = atom->e;
 	double *de = atom->de;
 //double **x = atom->x;
 	int *type = atom->type;
-	double pFinal;
 	int i, itype;
 	int nlocal = atom->nlocal;
 	Matrix3d E, D, Ddev, W, V, sigma_diag;
 	Matrix3d eye, stressRate, StressRateDevJaumann;
 	Matrix3d stressIncrement, d_dev, devStrainIncrement, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
-	double plastic_strain_increment, yieldStress;
+	double plasticStrainIncrement;
 	double dt = FACTOR * update->dt;
 	double newPressure;
 	double G_eff = 0.0; // effective shear modulus
 	double K_eff; // effective bulk modulus
 	double M, p_wave_speed;
 	double rho, effectiveViscosity, d_iso;
-	Matrix3d deltaStressDev;
+	Matrix3d deltaStressDev, oldStress;
 
 	dtCFL = 1.0e22;
 	eye.setIdentity();
@@ -1270,7 +949,7 @@ void PairSmdMpmLin::UpdateStress() {
 	for (i = 0; i < nlocal; i++) {
 		itype = type[i];
 		if (setflag[itype][itype] == 1) {
-			newStressDeviator.setZero();
+
 			newPressure = 0.0;
 
 			effectiveViscosity = 0.0;
@@ -1279,37 +958,48 @@ void PairSmdMpmLin::UpdateStress() {
 			D = 0.5 * (L[i] + L[i].transpose());
 
 			d_iso = D.trace();
+			d_dev = Deviator(D);
 
 			rho = rmass[i] / vol[i];
 
-
-			double mu = J[i];
+			double mu = 1.0 - J[i];
 			double temperature = 1.0;
 			double soundspeed;
 			matDB.ComputePressure(mu, temperature, itype, newPressure, K_eff);
+			//if (fabs(mu) > 1.0e-3) printf("j=%g, , mu=%g, p=%g\n", J[i], mu, newPressure);
 
 			/*
 			 * ******************************* STRENGTH MODELS ************************************************
 			 */
-
+			newStressDeviator.setZero();
 			if (matDB.gProps[itype].strengthType != 0) {
 				/*
-				 * initial stress state has already been assigned before in function GetStress()
-				 * we need the deviator here.
+				 * Get stress deviator
 				 */
-				oldStressDeviator = Deviator(stressTensor[i]);
-				d_dev = Deviator(D);
+				oldStress(0, 0) = tlsph_stress[i][0];
+				oldStress(0, 1) = tlsph_stress[i][1];
+				oldStress(0, 2) = tlsph_stress[i][2];
+				oldStress(1, 1) = tlsph_stress[i][3];
+				oldStress(1, 2) = tlsph_stress[i][4];
+				oldStress(2, 2) = tlsph_stress[i][5];
+				oldStress(1, 0) = oldStress(0, 1);
+				oldStress(2, 0) = oldStress(0, 2);
+				oldStress(2, 1) = oldStress(1, 2);
+				oldStressDeviator = Deviator(oldStress);
+
 				devStrainIncrement = dt * d_dev;
 
-				matDB.ComputeDevStressIncrement(devStrainIncrement, itype, stressIncrement);
+				matDB.ComputeDevStressIncrement(devStrainIncrement, itype, oldStressDeviator, plasticStrainIncrement,
+						stressIncrement);
+				eff_plastic_strain[i] += plasticStrainIncrement;
+
 				newStressDeviator = oldStressDeviator + stressIncrement;
 
 				// estimate effective shear modulus for time step stability
 				deltaStressDev = oldStressDeviator - newStressDeviator;
-				G_eff = effective_shear_modulus(d_dev/dt, deltaStressDev, dt, itype);
+				G_eff = effective_shear_modulus(d_dev / dt, deltaStressDev, dt, itype);
 
 			} // end if (strength[itype] != NONE)
-
 
 			/*
 			 * assemble updated stress Tensor from pressure and deviatoric parts
@@ -1318,7 +1008,7 @@ void PairSmdMpmLin::UpdateStress() {
 			//cout << "this is the new stress deviator: " << newStressDeviator << endl;
 
 			/*
-			 * store new stress Tensor
+			 * store new stress Tensor (only elastic contributions)
 			 */
 			tlsph_stress[i][0] = stressTensor[i](0, 0);
 			tlsph_stress[i][1] = stressTensor[i](0, 1);
@@ -1326,6 +1016,26 @@ void PairSmdMpmLin::UpdateStress() {
 			tlsph_stress[i][3] = stressTensor[i](1, 1);
 			tlsph_stress[i][4] = stressTensor[i](1, 2);
 			tlsph_stress[i][5] = stressTensor[i](2, 2);
+
+			/*
+			 * add viscous stress
+			 */
+
+			if (matDB.gProps[itype].viscType != 0) {
+
+				Matrix3d viscousStress;
+				matDB.ComputeViscousStress(d_dev, itype, viscousStress);
+
+				smd_visc_stress[i][0] = viscousStress(0, 0);
+				smd_visc_stress[i][1] = viscousStress(0, 1);
+				smd_visc_stress[i][2] = viscousStress(0, 2);
+				smd_visc_stress[i][3] = viscousStress(1, 1);
+				smd_visc_stress[i][4] = viscousStress(1, 2);
+				smd_visc_stress[i][5] = viscousStress(2, 2);
+
+				stressTensor[i] += viscousStress;
+
+			}
 
 			/*
 			 * stable timestep based on speed-of-sound
@@ -1605,9 +1315,8 @@ void PairSmdMpmLin::settings(int narg, char **arg) {
  ------------------------------------------------------------------------- */
 
 void PairSmdMpmLin::coeff(int narg, char **arg) {
-	int ioffset, iarg, iNextKwd, itype, jtype;
+	int itype, jtype;
 	char str[128];
-	std::string s, t;
 
 	if (narg < 2) {
 		sprintf(str, "number of arguments for pair mpm is too small!");
@@ -1633,13 +1342,11 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 		 * read parameters which are common -- regardless of material / eos model
 		 */
 
-
 		setflag[itype][itype] = 1;
 
 		/*
 		 * error checks
 		 */
-
 
 	} else {
 		/*
@@ -1894,7 +1601,11 @@ void PairSmdMpmLin::AdvanceParticles() {
 
 			if (mode == DEFAULT_INTEGRATION) {
 
-				//printf("doing default integration for particle %d\n", i);
+				//printf("doing default integration for particle %d, picis%f, flip %f\n", i, PIC_contribution, FLIP_contribution);
+
+				//double a = particleAccelerations[i].norm();
+				//if (a > 0.0)
+//					printf("acceleration of particle is %f\n", a);
 
 				// mixed FLIP-PIC update of velocities
 				v[i][0] = PIC_contribution * particleVelocities[i](0)
@@ -1919,6 +1630,43 @@ void PairSmdMpmLin::AdvanceParticles() {
 						v[i][1] *= scale;
 						if (flag3d)
 							v[i][2] *= scale;
+					}
+				}
+
+				if (symmetry_plane_x_plus_exists) {
+					if (x[i][0] < symmetry_plane_x_plus_location) {
+						x[i][0] = symmetry_plane_x_plus_location;
+						//particleVelocities[i](0) = 0.0;
+						//v[i][0] = 0.0;
+					}
+				}
+				if (symmetry_plane_x_minus_exists) {
+					if (x[i][0] > symmetry_plane_x_minus_location) {
+						x[i][0] = symmetry_plane_x_minus_location;
+						//particleVelocities[i](0) = 0.0;
+						//v[i][0] = 0.0;
+					}
+				}
+				if (symmetry_plane_y_plus_exists) {
+					if (x[i][1] < symmetry_plane_y_plus_location) {
+						x[i][1] = symmetry_plane_y_plus_location;
+						//particleVelocities[i](1) = 0.0;
+						//v[i][1] = 0.0;
+					}
+				}
+				if (symmetry_plane_y_minus_exists) {
+					if (x[i][1] > symmetry_plane_y_minus_location) {
+						v[i][1] = 0.0;
+					}
+				}
+				if (symmetry_plane_z_plus_exists) {
+					if (x[i][2] < symmetry_plane_z_plus_location) {
+						v[i][2] = 0.0;
+					}
+				}
+				if (symmetry_plane_z_minus_exists) {
+					if (x[i][2] > symmetry_plane_z_minus_location) {
+						v[i][2] = 0.0;
 					}
 				}
 
@@ -2086,4 +1834,151 @@ void PairSmdMpmLin::DumpGrid() {
 
 	fclose(f);
 
+}
+
+void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction) {
+
+	if (direction == Xplus) {
+		lgridnodes[icell].v(0) = 0.0;
+		lgridnodes[icell].f(0) = 0.0;
+		// mirror velocity of nodes on the +-side to the -side
+		int source = ix + 1;
+		int target = ix - 1;
+		int sourcecell = source + iy * grid_nx + iz * grid_nx * grid_ny;
+		int targetcell = target + iy * grid_nx + iz * grid_nx * grid_ny;
+		lgridnodes[targetcell].v(0) = lgridnodes[sourcecell].v(0);
+		lgridnodes[targetcell].f(0) = lgridnodes[sourcecell].f(0);
+	} else if (direction == Xminus) {
+		lgridnodes[icell].v(0) = 0.0;
+		lgridnodes[icell].f(0) = 0.0;
+		// mirror velocity of nodes on the +-side to the -side
+		int source = ix - 1;
+		int target = ix + 1;
+		int sourcecell = source + iy * grid_nx + iz * grid_nx * grid_ny;
+		int targetcell = target + iy * grid_nx + iz * grid_nx * grid_ny;
+		lgridnodes[targetcell].v(0) = lgridnodes[sourcecell].v(0);
+		lgridnodes[targetcell].f(0) = lgridnodes[sourcecell].f(0);
+	} else if (direction == Yplus) {
+		lgridnodes[icell].v(1) = 0.0;
+		lgridnodes[icell].f(1) = 0.0;
+		// mirror velocity of nodes on the +-side to the -side
+		int source = iy + 1;
+		int target = iy - 1;
+		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
+		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
+		lgridnodes[targetcell].v(1) = lgridnodes[sourcecell].v(1);
+		lgridnodes[targetcell].f(1) = lgridnodes[sourcecell].f(1);
+	} else if (direction == Yminus) {
+		lgridnodes[icell].v(1) = 0.0;
+		lgridnodes[icell].f(1) = 0.0;
+		// mirror velocity of nodes on the +-side to the -side
+		int source = iy - 1;
+		int target = iy + 1;
+		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
+		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
+		lgridnodes[targetcell].v(1) = lgridnodes[sourcecell].v(1);
+		lgridnodes[targetcell].f(1) = lgridnodes[sourcecell].f(1);
+	} else if (direction == Zplus) {
+		lgridnodes[icell].v(2) = 0.0;
+		lgridnodes[icell].f(2) = 0.0;
+		// mirror velocity of nodes on the +-side to the -side
+		int source = iz + 1;
+		int target = iz - 1;
+		int sourcecell = ix + iy * grid_nx + source * grid_nx * grid_ny;
+		int targetcell = ix + iy * grid_nx + target * grid_nx * grid_ny;
+		lgridnodes[targetcell].v(2) = lgridnodes[sourcecell].v(2);
+		lgridnodes[targetcell].f(2) = lgridnodes[sourcecell].f(2);
+	} else if (direction == Zminus) {
+		lgridnodes[icell].v(2) = 0.0;
+		lgridnodes[icell].f(2) = 0.0;
+		// mirror velocity of nodes on the +-side to the -side
+		int source = iz - 1;
+		int target = iz + 1;
+		int sourcecell = ix + iy * grid_nx + source * grid_nx * grid_ny;
+		int targetcell = ix + iy * grid_nx + target * grid_nx * grid_ny;
+		lgridnodes[targetcell].v(2) = lgridnodes[sourcecell].v(2);
+		lgridnodes[targetcell].f(2) = lgridnodes[sourcecell].f(2);
+	}
+
+}
+
+void PairSmdMpmLin::CheckSymmetryBC() {
+
+	if (symmetry_plane_x_plus_exists) {
+		double ssx = icellsize * symmetry_plane_x_plus_location - static_cast<double>(minix); // shifted position in grid coords
+		int ssx_index = static_cast<int>(ssx) - 1;
+		if ((ssx_index > 1) && (ssx_index < grid_nx - 2)) {
+			for (int iy = 0; iy < grid_ny; iy++) {
+				for (int iz = 0; iz < grid_nz; iz++) {
+					int icell = ssx_index + iy * grid_nx + iz * grid_nx * grid_ny;
+					ApplySymmetryBC(icell, ssx_index, iy, iz, Xplus);
+				}
+			}
+		}
+	}
+
+	if (symmetry_plane_x_minus_exists) {
+		double ssx = icellsize * symmetry_plane_x_minus_location - static_cast<double>(minix); // shifted position in grid coords
+		int ssx_index = static_cast<int>(ssx) - 1;
+		if ((ssx_index > 1) && (ssx_index < grid_nx - 2)) {
+			for (int iy = 0; iy < grid_ny; iy++) {
+				for (int iz = 0; iz < grid_nz; iz++) {
+					int icell = ssx_index + iy * grid_nx + iz * grid_nx * grid_ny;
+					ApplySymmetryBC(icell, ssx_index, iy, iz, Xminus);
+				}
+			}
+		}
+	}
+
+	if (symmetry_plane_y_plus_exists) {
+		double ssy = icellsize * symmetry_plane_y_plus_location - static_cast<double>(miniy); // shifted position in grid coords
+		int ssy_index = static_cast<int>(ssy) - 1;
+		if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
+			for (int ix = 0; ix < grid_nx; ix++) {
+				for (int iz = 0; iz < grid_nz; iz++) {
+					int icell = ix + ssy_index * grid_nx + iz * grid_nx * grid_ny;
+					ApplySymmetryBC(icell, ix, ssy_index, iz, Yplus);
+				}
+			}
+		}
+	}
+
+	if (symmetry_plane_y_minus_exists) {
+		double ssy = icellsize * symmetry_plane_y_minus_location - static_cast<double>(miniy); // shifted position in grid coords
+		int ssy_index = static_cast<int>(ssy) - 1;
+		if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
+			for (int ix = 0; ix < grid_nx; ix++) {
+				for (int iz = 0; iz < grid_nz; iz++) {
+					int icell = ix + ssy_index * grid_nx + iz * grid_nx * grid_ny;
+					ApplySymmetryBC(icell, ix, ssy_index, iz, Yminus);
+				}
+			}
+		}
+	}
+
+	if (symmetry_plane_z_plus_exists) {
+		double ssz = icellsize * symmetry_plane_z_plus_location - static_cast<double>(miniz); // shifted position in grid coords
+		int ssz_index = static_cast<int>(ssz) - 1;
+		if ((ssz_index > 1) && (ssz_index < grid_nz - 2)) {
+			for (int ix = 0; ix < grid_nx; ix++) {
+				for (int iy = 0; iy < grid_ny; iy++) {
+					int icell = ix + iy * grid_nx + ssz_index * grid_nx * grid_ny;
+					ApplySymmetryBC(icell, ix, iy, ssz_index, Zplus);
+				}
+			}
+		}
+	}
+
+	if (symmetry_plane_z_minus_exists) {
+		double ssz = icellsize * symmetry_plane_z_minus_location - static_cast<double>(miniz); // shifted position in grid coords
+		int ssz_index = static_cast<int>(ssz) - 1;
+		if ((ssz_index > 1) && (ssz_index < grid_nz - 2)) {
+			for (int ix = 0; ix < grid_nx; ix++) {
+				for (int iy = 0; iy < grid_ny; iy++) {
+					int icell = ix + iy * grid_nx + ssz_index * grid_nx * grid_ny;
+					ApplySymmetryBC(icell, ix, iy, ssz_index, Zminus);
+				}
+			}
+		}
+	}
 }

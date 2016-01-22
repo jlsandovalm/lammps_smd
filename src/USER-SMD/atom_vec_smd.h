@@ -91,6 +91,7 @@ class AtomVecSMD : public AtomVec {
   int *molecule;
   double *vfrac,**x0,*contact_radius, **smd_data_9, *e, *de, **vest;
   double **tlsph_stress;
+  double **smd_visc_stress;
   double *eff_plastic_strain;
   double *damage;
   double *eff_plastic_strain_rate;
@@ -124,3 +125,4 @@ E: Invalid density in Atoms section of data file
 Density value cannot be <= 0.0.
 
 */
+

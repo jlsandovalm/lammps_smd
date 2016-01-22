@@ -81,6 +81,7 @@ class Atom : protected Pointers {
   double *contact_radius;
   double **smd_data_9;
   double **smd_stress;
+  double **smd_visc_stress;
   double *eff_plastic_strain;
   double *eff_plastic_strain_rate;
   double *damage;
@@ -143,6 +144,7 @@ class Atom : protected Pointers {
   int eff_plastic_strain_rate_flag;
   int damage_flag;
   int heat_flag;
+  int smd_visc_stress_flag;
 
   // Peridynamics scale factor, used by dump cfg
 

@@ -87,6 +87,15 @@ int SmdMatDB::ReadMaterials(const int ntypes__) {
 
 	}
 
+	// read each type's viscosity model
+	for (int i = 1; i < ntypes + 1; i++) {
+		int retVal = ReadViscosities(ini, i);
+		if (retVal < 0) {
+			return -1;
+		}
+
+	}
+
 //	// get all sections
 //	CSimpleIniA::TNamesDepend sections;
 //	ini.GetAllSections(sections);
@@ -112,7 +121,7 @@ int SmdMatDB::ReadMaterials(const int ntypes__) {
 //	cout << "value of hurz: " << ivalue << endl;
 //	cout << "value of blurb: " << dvalue << endl;
 
-//PrintData();
+	PrintData();
 
 	return 0;
 }
@@ -177,6 +186,22 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 		} else {
 			printf("Strength could be found\n");
 			gProps[itype].strengthName = strengthName;
+		}
+	}
+
+	// read Viscosity Model
+	string viscName = ini.GetValue(sectionName.c_str(), "VISCOSITY", STRING_NOT_FOUND);
+	cout << "VISCOSITY model is " << viscName << endl;
+
+	if (viscName != "NONE") {
+		retVal = ini.GetSectionSize(viscName.c_str());
+
+		if (retVal < 0) {
+			printf("Viscosity model %s could not be found in ini file\n", viscName.c_str());
+			return -1;
+		} else {
+			printf("Viscosity could be found\n");
+			gProps[itype].viscName = viscName;
 		}
 	}
 
@@ -245,8 +270,11 @@ int SmdMatDB::ReadStrengths(CSimpleIni &ini, const int itype) {
 			return -1;
 		} else {
 			if (MatId == 1) {
-				// this is the Linear EOS
+				// this is the linear strength model
 				return ReadStrengthLinear(ini, itype);
+			} else if (MatId == 2) {
+				// this is the simple plasticity model
+				return ReadStrengthSimplePlasticity(ini, itype);
 			} else {
 				printf("MatId = %d unknown\n", MatId);
 				return -1;
@@ -292,6 +320,99 @@ int SmdMatDB::ReadStrengthLinear(CSimpleIni &ini, const int itype) {
 
 }
 
+int SmdMatDB::ReadStrengthSimplePlasticity(CSimpleIni &ini, const int itype) {
+	string section = gProps[itype].strengthName;
+
+	// check if this material already exists
+	for (size_t i = 0; i < strengthSimplePlasticity_vec.size(); ++i) {
+		if (strengthSimplePlasticity_vec[i].name == section) {
+			gProps[itype].strengthType = 2;
+			gProps[itype].strengthTypeIdx = i;
+			return 0;
+		}
+	}
+
+	double E = ini.GetDoubleValue(section.c_str(), "E", DOUBLE_NOT_FOUND);
+	if (E == DOUBLE_NOT_FOUND) {
+		printf("could not read E for simple plasticity strength model [%s]\n", section.c_str());
+		return -1;
+	}
+
+	double nu = ini.GetDoubleValue(section.c_str(), "nu", DOUBLE_NOT_FOUND);
+	if (nu == DOUBLE_NOT_FOUND) {
+		printf("could not read nu for simple plasticity strength model [%s]\n", section.c_str());
+		return -1;
+	}
+
+	double sigmaYield = ini.GetDoubleValue(section.c_str(), "yield_stress", DOUBLE_NOT_FOUND);
+	if (sigmaYield == DOUBLE_NOT_FOUND) {
+		printf("could not read sigma_yield for simple plasticity strength model [%s]\n", section.c_str());
+		return -1;
+	}
+
+	strengthSimplePlasticity_vec.push_back(StrengthSimplePlasticity(E, nu, sigmaYield, section));
+	gProps[itype].strengthType = 2;
+	gProps[itype].strengthTypeIdx = strengthSimplePlasticity_vec.size() - 1;
+
+	return 0;
+
+}
+
+int SmdMatDB::ReadViscosities(CSimpleIni &ini, const int itype) {
+
+	// we already know that the section exists
+	string section = gProps[itype].viscName;
+	printf("+++ visc model %s\n", section.c_str());
+
+	if (section != "NONE") {
+		int ViscId = ini.GetLongValue(section.c_str(), "ViscId", LONG_NOT_FOUND);
+		if (ViscId == LONG_NOT_FOUND) {
+			printf("Missing ViscId in visc model\n");
+			return -1;
+		} else {
+			if (ViscId == 1) {
+				// this is Newtonian viscosity
+				return ReadViscNewton(ini, itype);
+			} else {
+				printf("ViscId = %d unknown\n", ViscId);
+				return -1;
+			}
+		}
+	}
+
+	return 1;
+
+}
+
+int SmdMatDB::ReadViscNewton(CSimpleIni &ini, const int itype) {
+	string section = gProps[itype].viscName;
+
+	// check if this material already exists
+	for (size_t i = 0; i < viscNewton_vec.size(); ++i) {
+		if (viscNewton_vec[i].name == section) {
+			gProps[itype].viscType = 1;
+			gProps[itype].viscTypeIdx = i;
+			printf("returning because viscosity model already exists\n");
+			return 0;
+		}
+	}
+
+	double eta = ini.GetDoubleValue(section.c_str(), "eta", DOUBLE_NOT_FOUND);
+	if (eta == DOUBLE_NOT_FOUND) {
+		printf("could not read eta for Newton viscosity model [%s]\n", section.c_str());
+		return -1;
+	} else {
+		printf("**** ETA = %f\n", eta);
+	}
+
+	viscNewton_vec.push_back(ViscosityNewton(eta, section));
+	printf("Assigning visc type %d to particle type %d\n", gProps[itype].viscType, itype);
+	gProps[itype].viscType = 1;
+	gProps[itype].viscTypeIdx = viscNewton_vec.size() - 1;
+
+	return 0;
+}
+
 void SmdMatDB::PrintData() {
 
 	for (int itype = 1; itype < ntypes + 1; itype++) {
@@ -306,6 +427,17 @@ void SmdMatDB::PrintData() {
 			printf("linear elastic youngs modulus %f\n", strengthLinear_vec[idx].E);
 			printf("linear elastic shear  modulus %f\n", strengthLinear_vec[idx].G);
 			printf("linear elastic Poisson ratio  %f\n", strengthLinear_vec[idx].nu);
+		}
+
+		printf("material viscosity name is %s\n", gProps[itype].viscName.c_str());
+		int viscType = gProps[itype].viscType;
+		idx = gProps[itype].viscTypeIdx;
+
+		if (viscType == 1) { // linear elastic
+			printf("number of Newton viscosity material types: %lu\n", viscNewton_vec.size());
+			printf("eta %f\n", viscNewton_vec[idx].eta);
+		} else {
+			printf("unknwon visc type %d\n", viscType);
 		}
 
 	}
@@ -323,13 +455,28 @@ void SmdMatDB::ComputePressure(const double mu, const double temperature, const 
 	}
 }
 
-void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, Matrix3d &stressIncrement) {
+void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, const Matrix3d oldStressDeviator, double &plasticStrainIncrement,
+		Matrix3d &stressIncrement) {
 
 	int strengthType = gProps[itype].strengthType;
 	int strengthIdx = gProps[itype].strengthTypeIdx;
 
 	if (strengthType == 1) { // linear strength model
 		stressIncrement = strengthLinear_vec[strengthIdx].ComputeStressIncrement(d_dev);
+	} else if (strengthType == 2) { // simple plasticity strength model
+		 strengthSimplePlasticity_vec[strengthIdx].ComputeStressIncrement(d_dev, oldStressDeviator, plasticStrainIncrement, stressIncrement);
+	} else {
+		stressIncrement.setZero();
 	}
+}
+
+void SmdMatDB::ComputeViscousStress(const Eigen::Matrix3d d_dev, const int itype, Eigen::Matrix3d &viscousStress) {
+	int viscType = gProps[itype].viscType;
+	int viscIdx = gProps[itype].viscTypeIdx;
+
+	if (viscType == 1) { // Newton viscosity
+		viscousStress = viscNewton_vec[viscIdx].ComputeStressDeviator(d_dev);
+	}
+
 }
 

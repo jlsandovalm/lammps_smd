@@ -97,7 +97,7 @@ Atom::Atom(LAMMPS *lmp) : Pointers(lmp)
   // USER-SMD
   contact_radius = NULL;
   smd_data_9 = NULL;
-  smd_stress = NULL;
+  smd_stress = smd_visc_stress = NULL;
   eff_plastic_strain = NULL;
   eff_plastic_strain_rate = NULL;
   damage = NULL;
@@ -161,7 +161,7 @@ Atom::Atom(LAMMPS *lmp) : Pointers(lmp)
   smd_flag = 0;
   contact_radius_flag = 0;
   smd_data_9_flag = 0;
-  smd_stress_flag = 0;
+  smd_stress_flag = smd_visc_stress_flag = 0;
   x0_flag = 0;
   eff_plastic_strain_flag = 0;
   eff_plastic_strain_rate_flag = 0;
@@ -268,6 +268,7 @@ Atom::~Atom()
   memory->destroy(contact_radius);
   memory->destroy(smd_data_9);
   memory->destroy(smd_stress);
+  memory->destroy(smd_visc_stress);
   memory->destroy(eff_plastic_strain);
   memory->destroy(eff_plastic_strain_rate);
   memory->destroy(damage);
@@ -1988,6 +1989,7 @@ void *Atom::extract(char *name)
   if (strcmp(name, "contact_radius") == 0) return (void *) contact_radius;
   if (strcmp(name, "smd_data_9") == 0) return (void *) smd_data_9;
   if (strcmp(name, "smd_stress") == 0) return (void *) smd_stress;
+  if (strcmp(name, "smd_visc_stress") == 0) return (void *) smd_visc_stress;
   if (strcmp(name, "eff_plastic_strain") == 0) return (void *) eff_plastic_strain;
   if (strcmp(name, "eff_plastic_strain_rate") == 0) return (void *) eff_plastic_strain_rate;
   if (strcmp(name, "damage") == 0) return (void *) damage;

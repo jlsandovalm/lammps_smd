@@ -144,6 +144,8 @@ private:
 
 	SmdMatDB matDB;
 
+	int iproc;
+
 };
 
 }

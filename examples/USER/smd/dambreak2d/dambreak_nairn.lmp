@@ -8,12 +8,6 @@
 # MATERIAL PARAMETERS
 ####################################################################################################
 variable        rho_water equal 1000 # mass density water
-variable        K equal  15.0e3 # bulk modulus -- 15 kPa
-variable        c0 equal sqrt(${K}/${rho_water}) # speed of sound for water
-variable        q1 equal 0.06 # artificial viscosity
-variable        q2 equal 0.0 # artificial viscosity
-variable        Hg equal 10 # Hourglass control coefficient for solid objects
-variable        Cp equal 1.0 # heat capacity -- not used here
 
 ####################################################################################################
 # INITIALIZE LAMMPS
@@ -71,16 +65,18 @@ variable        mpm_cellsize equal 1*${l0}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm ${mpm_cellsize} sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1 
-pair_coeff      1 1  *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
-                              *EOS_TAIT 7 &
-				*VISCOSITY_NEWTON 0.5 &
-	                      *END
+pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1 &
+                FLIP 0.99
+pair_coeff      1 1 
+
+# *COMMON ${rho_water} ${c0} ${q1} ${Cp} ${Hg} &
+#                              *EOS_TAIT 7 &
+#				*VISCOSITY_NEWTON 0.5 &
+#	                      *END
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water water smd/integrate_mpm FLIP 0.99
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
