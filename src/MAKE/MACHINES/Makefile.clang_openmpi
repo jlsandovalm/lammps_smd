@@ -17,7 +17,7 @@ SHELL = /bin/sh
 
 
 CC =		mpic++
-#CCFLAGS =	-Wall -Wno-unused-parameter -O2 -g -fsanitize=address -fno-omit-frame-pointer
+#CCFLAGS =	-Wall -Wno-unused-parameter -Wno-unused-function -O2 -g -fsanitize=address -fno-omit-frame-pointer
 CCFLAGS =	-g -Wall -Wno-unused-parameter -Wno-unused-function -O3 -ffast-math -D__extern_always_inline=inline
 SHFLAGS =	-fPIC
 DEPFLAGS =	-M

@@ -96,32 +96,7 @@ int SmdMatDB::ReadMaterials(const int ntypes__) {
 
 	}
 
-//	// get all sections
-//	CSimpleIniA::TNamesDepend sections;
-//	ini.GetAllSections(sections);
-
-// output all of the items
-//	CSimpleIniA::TNamesDepend::const_iterator i;
-//	for (i = sections.begin(); i != sections.end(); ++i) {
-//		printf("section-name = '%s'\n", i->pItem);
-//
-//		// check if section name is known and if so, call a specific function to read its values
-//
-//		if (strcmp(i->pItem, "ASSIGN") == 0) {
-//			printf("common\n");
-//		}
-//	}
-
-//	// get the size of the section [standard]
-//	printf("\n-- Number of keys in section [standard] = %d\n", ini.GetSectionSize("SECTION"));
-//	// get the value of a key
-//	int ivalue = ini.GetLongValue("SECTION", "hurz");
-//
-//	double dvalue = ini.GetDoubleValue("SECTION", "blurb");
-//	cout << "value of hurz: " << ivalue << endl;
-//	cout << "value of blurb: " << dvalue << endl;
-
-	PrintData();
+	DetermineReferenceSoundspeed();
 
 	return 0;
 }
@@ -133,21 +108,10 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 	strengthmap["STRENGTH_LINEAR"] = 1;
 
 	string sectionName = SSTR(itype);
-	gProps[itype].c0 = ini.GetDoubleValue(sectionName.c_str(), "c0", DOUBLE_NOT_FOUND);
-	if (gProps[itype].c0 == DOUBLE_NOT_FOUND) {
-		printf("could not read c0 for type %d\n", itype);
-		return -1;
-	}
 
 	gProps[itype].rho0 = ini.GetDoubleValue(sectionName.c_str(), "rho0", DOUBLE_NOT_FOUND);
 	if (gProps[itype].rho0 == DOUBLE_NOT_FOUND) {
 		printf("could not read rho0 for type %d\n", itype);
-		return -1;
-	}
-
-	gProps[itype].nu0 = ini.GetDoubleValue(sectionName.c_str(), "nu0", DOUBLE_NOT_FOUND);
-	if (gProps[itype].nu0 == DOUBLE_NOT_FOUND) {
-		printf("could not read nu0 for type %d\n", itype);
 		return -1;
 	}
 
@@ -156,9 +120,6 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 		printf("could not read cp for type %d\n", itype);
 		return -1;
 	}
-
-	gProps[itype].K0 = gProps[itype].c0 * gProps[itype].c0 * gProps[itype].rho0;
-	gProps[itype].G0 = 3.0 * gProps[itype].K0 * (1.0 - 2.0 * gProps[itype].nu0) / (2.0 * (1.0 + gProps[itype].nu0));
 
 	// read EOS
 	string eosName = ini.GetValue(sectionName.c_str(), "EOS", STRING_NOT_FOUND);
@@ -222,6 +183,9 @@ int SmdMatDB::ReadEoss(CSimpleIni &ini, const int itype) {
 			if (EosId == 1) {
 				// this is the Linear EOS
 				return ReadEosLinear(ini, itype);
+			} else if (EosId == 2) {
+				// this is the Tait-Murnaghan isothermal EOS
+				return ReadEosTait(ini, itype);
 			} else {
 				printf("EosId = %d unknown\n", EosId);
 				return -1;
@@ -254,6 +218,37 @@ int SmdMatDB::ReadEosLinear(CSimpleIni &ini, const int itype) {
 	eosLinear_vec.push_back(EosLinear(K, section));
 	gProps[itype].eosType = 1;
 	gProps[itype].eosTypeIdx = eosLinear_vec.size() - 1;
+
+	return 0;
+}
+
+int SmdMatDB::ReadEosTait(CSimpleIni &ini, const int itype) {
+	string section = gProps[itype].eosName;
+
+	// check if this material already exists
+	for (size_t i = 0; i < eosTait_vec.size(); ++i) {
+		if (eosTait_vec[i].name == section) {
+			gProps[itype].eosType = 2;
+			gProps[itype].eosTypeIdx = i;
+			return 0;
+		}
+	}
+
+	double K = ini.GetDoubleValue(section.c_str(), "K", DOUBLE_NOT_FOUND);
+	if (K == DOUBLE_NOT_FOUND) {
+		printf("could not read K for Tait eos model [%s]\n", section.c_str());
+		return -1;
+	}
+
+	int n = ini.GetLongValue(section.c_str(), "n", LONG_NOT_FOUND);
+	if (n == LONG_NOT_FOUND) {
+		printf("could not read n for Tait eos model [%s]\n", section.c_str());
+		return -1;
+	}
+
+	eosTait_vec.push_back(EosTait(K, n, section));
+	gProps[itype].eosType = 2;
+	gProps[itype].eosTypeIdx = eosTait_vec.size() - 1;
 
 	return 0;
 }
@@ -415,32 +410,61 @@ int SmdMatDB::ReadViscNewton(CSimpleIni &ini, const int itype) {
 
 void SmdMatDB::PrintData() {
 
+	printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
+	printf("... SMD / MPM CONSTITUTIVE MODELS\n\n");
+
 	for (int itype = 1; itype < ntypes + 1; itype++) {
 
-		printf("\ntype = %d\n", itype);
-		printf("material strength name is %s\n", gProps[itype].strengthName.c_str());
-		int strengthType = gProps[itype].strengthType;
-		int idx = gProps[itype].strengthTypeIdx;
+		printf("-------------------------------------------------------------------------------\n");
+		printf("nparticle type = %d\n", itype);
 
-		if (strengthType == 1) { // linear elastic
-			printf("number of linear elastic material types: %lu\n", strengthLinear_vec.size());
-			printf("linear elastic youngs modulus %f\n", strengthLinear_vec[idx].E);
-			printf("linear elastic shear  modulus %f\n", strengthLinear_vec[idx].G);
-			printf("linear elastic Poisson ratio  %f\n", strengthLinear_vec[idx].nu);
-		}
+		printf("... reference mass density is %f\n", gProps[itype].rho0);
+		printf("... reference speed of sound is %f\n", gProps[itype].c0);
+		printf("\n");
 
-		printf("material viscosity name is %s\n", gProps[itype].viscName.c_str());
-		int viscType = gProps[itype].viscType;
-		idx = gProps[itype].viscTypeIdx;
-
-		if (viscType == 1) { // linear elastic
-			printf("number of Newton viscosity material types: %lu\n", viscNewton_vec.size());
-			printf("eta %f\n", viscNewton_vec[idx].eta);
+		int eosType = gProps[itype].eosType;
+		if (eosType > 0) {
+			printf("EOS name is %s\n", gProps[itype].eosName.c_str());
+			int idx = gProps[itype].eosTypeIdx;
+			if (eosType == 1) { // linear EOS
+				eosLinear_vec[idx].PrintParameters();
+			} else if (eosType == 2) { // Murnaghan Tait isothermal EOS
+				eosTait_vec[idx].PrintParameters();
+			}
 		} else {
-			printf("unknwon visc type %d\n", viscType);
+			printf("... no EOS defined\n");
 		}
+
+		printf("\n");
+		int strengthType = gProps[itype].strengthType;
+		if (strengthType > 0) {
+			printf("material strength name is %s\n", gProps[itype].strengthName.c_str());
+			int idx = gProps[itype].strengthTypeIdx;
+			if (strengthType == 1) { // linear elastic
+				strengthLinear_vec[idx].PrintParameters();
+			} else if (strengthType == 2) { // simple plasticity model
+				strengthSimplePlasticity_vec[idx].PrintParameters();
+			}
+		} else {
+			printf("... no material strength model defined\n");
+		}
+
+		printf("\n");
+		int viscType = gProps[itype].viscType;
+		if (viscType > 0) {
+			printf("material viscosity name is %s\n", gProps[itype].viscName.c_str());
+			int idx = gProps[itype].viscTypeIdx;
+			if (viscType == 1) { // Newtonian viscosity
+				viscNewton_vec[idx].PrintParameters();
+			}
+		} else {
+			printf("... no viscosity model defined\n");
+		}
+		printf("-------------------------------------------------------------------------------\n");
 
 	}
+
+	printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 
 }
 
@@ -452,11 +476,13 @@ void SmdMatDB::ComputePressure(const double mu, const double temperature, const 
 	if (eosType == 1) { // linear EOS
 		pressure = eosLinear_vec[eosIdx].ComputePressure(mu);
 		K_eff = eosLinear_vec[eosIdx].K;
+	} else if (eosType == 2) { // Tait Murnaghan isothermal EOS
+		eosTait_vec[eosIdx].ComputePressure(mu, pressure, K_eff);
 	}
 }
 
-void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, const Matrix3d oldStressDeviator, double &plasticStrainIncrement,
-		Matrix3d &stressIncrement) {
+void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, const Matrix3d oldStressDeviator,
+		double &plasticStrainIncrement, Matrix3d &stressIncrement) {
 
 	int strengthType = gProps[itype].strengthType;
 	int strengthIdx = gProps[itype].strengthTypeIdx;
@@ -464,7 +490,8 @@ void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, 
 	if (strengthType == 1) { // linear strength model
 		stressIncrement = strengthLinear_vec[strengthIdx].ComputeStressIncrement(d_dev);
 	} else if (strengthType == 2) { // simple plasticity strength model
-		 strengthSimplePlasticity_vec[strengthIdx].ComputeStressIncrement(d_dev, oldStressDeviator, plasticStrainIncrement, stressIncrement);
+		strengthSimplePlasticity_vec[strengthIdx].ComputeStressIncrement(d_dev, oldStressDeviator, plasticStrainIncrement,
+				stressIncrement);
 	} else {
 		stressIncrement.setZero();
 	}
@@ -476,6 +503,27 @@ void SmdMatDB::ComputeViscousStress(const Eigen::Matrix3d d_dev, const int itype
 
 	if (viscType == 1) { // Newton viscosity
 		viscousStress = viscNewton_vec[viscIdx].ComputeStressDeviator(d_dev);
+	}
+
+}
+
+void SmdMatDB::DetermineReferenceSoundspeed() {
+
+	for (int itype = 1; itype < ntypes + 1; itype++) {
+		int eosType = gProps[itype].eosType;
+		if (eosType > 0) {
+			int idx = gProps[itype].eosTypeIdx;
+			if (eosType == 1) { // linear EOS
+				gProps[itype].K0 = eosLinear_vec[idx].K;
+			} else if (eosType == 2) { // Murnaghan Tait isothermal EOS
+				gProps[itype].K0 = eosTait_vec[idx].K;
+			}
+
+		} else {
+			printf("\n\n *** WARNING ***\n Could not define reference sped of sound because no EOS is defined\n *** WARNING ***\n");
+		}
+
+		gProps[itype].c0 = sqrt(gProps[itype].K0 / gProps[itype].rho0);
 	}
 
 }

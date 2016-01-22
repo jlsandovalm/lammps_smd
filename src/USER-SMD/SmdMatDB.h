@@ -25,10 +25,12 @@ public:
 			double &plasticStrainIncrement, Eigen::Matrix3d &stressIncrement);
 	void ComputeViscousStress(const Eigen::Matrix3d d_dev, const int itype, Eigen::Matrix3d &viscousStress);
 	void PrintData();
+	void DetermineReferenceSoundspeed();
 
 	// --------
 	int ReadEoss(CSimpleIni &ini, const int itype);
 	int ReadEosLinear(CSimpleIni &ini, const int itype);
+	int ReadEosTait(CSimpleIni &ini, const int itype);
 
 	// --------
 	int ReadStrengths(CSimpleIni &ini, const int itype);
@@ -70,7 +72,7 @@ public:
 	};
 	gProp *gProps;
 
-	class EosLinear {
+	class EosLinear { // this is EosId 1
 	public:
 		double K;
 		std::string name;
@@ -81,8 +83,36 @@ public:
 		double ComputePressure(double mu) {
 			return K * mu;
 		}
+		void PrintParameters() {
+			printf("... This is EOS #1, Linear EOS\n");
+			printf("... bulk modulus is %f\n", K);
+		}
+
 	};
 	std::vector<EosLinear> eosLinear_vec; // holds all linear eos models in this simulation
+
+	class EosTait { // this is EosId 2
+	public:
+		double K;
+		int n;
+		std::string name;
+		EosTait(double K__, int n__, std::string name__) {
+			K = K__;
+			name = name__;
+			n = n__;
+		}
+		void ComputePressure(double mu, double &p, double &Ktangent) {
+			double t = pow(mu + 1.0, n); // this is rho/rho0
+			p = K * (t - 1.0) / n;
+			Ktangent = K * t;
+		}
+		void PrintParameters() {
+			printf("... This is EOS #2, Tait-Murnaghan isothermal EOS\n");
+			printf("... bulk modulus is %f\n", K);
+			printf("... exponent is %d\n", n);
+		}
+	};
+	std::vector<EosTait> eosTait_vec; // holds all linear eos models in this simulation
 
 	class StrengthLinear {
 	public:
@@ -97,6 +127,13 @@ public:
 
 		Eigen::Matrix3d ComputeStressIncrement(const Eigen::Matrix3d deviatoricStrainIncrement) {
 			return 2.0 * G * deviatoricStrainIncrement;
+		}
+
+		void PrintParameters() {
+			printf("... This is strength model #1, Linear Elastic Strength\n");
+			printf("... Young's modulus %f\n", E);
+			printf("... shear modulus %f\n", G);
+			printf("... Poisson ratio %f\n", nu);
 		}
 	};
 	std::vector<StrengthLinear> strengthLinear_vec; // holds all linear strength models in this simulation
@@ -159,6 +196,14 @@ public:
 			}
 
 		}
+
+		void PrintParameters() {
+			printf("... This is strength model #2, Simple Plasticity\n");
+			printf("... Young's modulus %f\n", E);
+			printf("... shear modulus %f\n", G);
+			printf("... Poisson ratio %f\n", nu);
+			printf("... yield stress %f\n", yieldStress);
+		}
 	};
 	std::vector<StrengthSimplePlasticity> strengthSimplePlasticity_vec; // holds all linear strength models in this simulation
 
@@ -173,6 +218,11 @@ public:
 
 		Eigen::Matrix3d ComputeStressDeviator(const Eigen::Matrix3d strainRateDeviator) {
 			return 2.0 * eta * strainRateDeviator;
+		}
+
+		void PrintParameters() {
+			printf("... This is viscosity model #1, Newtonian Viscosity\n");
+			printf("... dynamic viscosity %f\n", eta);
 		}
 	};
 	std::vector<ViscosityNewton> viscNewton_vec; // holds all Newton viscosity models in this simulation

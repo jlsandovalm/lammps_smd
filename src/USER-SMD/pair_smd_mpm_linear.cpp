@@ -96,33 +96,10 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	if (retcode < 0) {
 		error->one(FLERR, "failed to read material database");
 	}
+	if (iproc == 0) {
+		matDB.PrintData();
+	}
 
-	//printf("type %d, rho0 %f\n", 1, matDB.gProps[1].rho0);
-
-	//printf("type %d, EOS %d\n", 1, matDB.gProps[1].EOS);
-
-//	for (int itype = 1; itype < atom->ntypes + 1; itype++) {
-//
-//		printf("\ntype = %d\n", itype);
-//		printf("material strength name is %s\n", matDB.gProps[itype].strengthName.c_str());
-//		int strengthType = matDB.gProps[itype].strengthType;
-//		int idx = matDB.gProps[itype].strengthTypeIdx;
-//
-//		if (strengthType == 1) { // linear elastic
-//			printf("number of linear elastic material types: %lu\n", matDB.strengthLinear_vec.size());
-//			printf("linear elastic youngs modulus %f\n", matDB.strengthLinear_vec[idx].E);
-//			printf("linear elastic shear  modulus %f\n", matDB.strengthLinear_vec[idx].G);
-//			printf("linear elastic Poisson ratio  %f\n", matDB.strengthLinear_vec[idx].nu);
-//		}
-//
-//		int eosType = matDB.gProps[itype].eosType;
-//		idx = matDB.gProps[itype].eosTypeIdx;
-//
-//		if (eosType == 1) { // linear elastic
-//			printf("number of linear eos types: %lu\n", matDB.eosLinear_vec.size());
-//			printf("linear eos bulk modulus %f\n", matDB.eosLinear_vec[idx].K);
-//		}
-//	}
 }
 
 /* ---------------------------------------------------------------------- */
