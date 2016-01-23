@@ -24,19 +24,9 @@ using namespace std;
 using namespace Eigen;
 
 SmdMatDB::SmdMatDB() {
-	// TODO Auto-generated constructor stub
-
-	printf("\n\n++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
-	printf("\n\nthis is the constructor\n");
-
 }
 
 SmdMatDB::~SmdMatDB() {
-	// TODO Auto-generated destructor stub
-
-	printf("\n\n--------------------------------------------------------------------\n");
-	printf("\n\nthis is the destructor\n");
-
 	delete[] gProps;
 }
 

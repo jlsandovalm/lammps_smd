@@ -12,6 +12,7 @@ variable        rho_water equal 1000 # mass density water
 ####################################################################################################
 # INITIALIZE LAMMPS
 ####################################################################################################
+processors      4 1 1
 units		si
 dimension       2
 boundary        f f p
@@ -24,8 +25,8 @@ comm_style      brick
 # CREATE SIMULATION BOX
 ####################################################################################################
 # create simulation box, a container, and a water column
-variable        l0 equal 0.01# initial particle lattice spacing
-region          box block -0.01 2.01 -0.01 2.01 -0.001 0.001 units box
+variable        l0 equal 0.005# initial particle lattice spacing
+region          box block -0.01 1.01 -0.01 2.01 -0.001 0.001 units box
 create_box      1 box
 
 ####################################################################################################
@@ -86,11 +87,12 @@ compute         S water smd/ulsph_stress
 compute         D water smd/ulsph_strain_rate
 compute         damage water smd/damage
 compute         F all smd/tlsph_defgrad
+compute         nn all smd/ulsph_num_neighs
 
 dump            dump_id all custom 100 dump.LAMMPS id type x y &
                 fx fy vx vy c_eint c_contact_radius mol &
                 radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_damage &
-		c_F[1] c_F[5] c_F[9] c_F[10]
+		c_F[1] c_F[5] c_F[9] c_F[10] c_nn
 dump_modify     dump_id first yes
 
 
@@ -106,10 +108,10 @@ thermo_modify   lost ignore
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
-run             5000
-#fix             balance_fix all balance 1000 0.9 rcb # load balancing for MPI
+run             1
+#fix             balance_fix all balance 100 0.9 rcb # load balancing for MPI
 
-#run 400
+run 40000
 #dump_modify     dump_id every 1
 
 #

@@ -87,10 +87,12 @@ public:
 	void ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction);
 	void CheckSymmetryBC();
 	void UpdateStress();
+	void MirrorCellVelocity(int source, int target, int component);
 
 protected:
 	void allocate();
 	int nmax; // max number of atoms on this proc
+	int *neighs;
 	double *c0;
 	double *particleHeat, *particleHeatRate;
 	double *J; // determinant of deformation gradient
@@ -114,13 +116,15 @@ private:
 	bool flag3d; // integrate z degree of freedom?
 	int nregion, region_flag;
 	char *idregion;
+	int comm_mode;
 
 	// enumerate some quantitities and associate these with integer values such that they can be used for lookup in an array structure
 
 	struct Gridnode {
 		double mass, heat, dheat_dt, imass;
-		Vector3d v, vest, f;
+		Vector3d v, fbody, f;
 		bool isVelocityBC;
+		int count;
 	};
 
 	double cellsize, icellsize;
