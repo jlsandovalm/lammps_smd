@@ -88,7 +88,7 @@ set             region right smd_heat ${heat_right}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm ${mpm_cellsize}
+pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1 2d
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
 			      *HEAT_CONDUCTION 1.0e4 &

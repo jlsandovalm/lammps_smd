@@ -285,6 +285,8 @@ void FixSMDMoveTriSurf::initial_integrate(int vflag) {
 				x[i][1] += dtv * vy;
 				x[i][2] += dtv * vz;
 
+				//printf("moving at inc %f\n", dtv*vx);
+
 				/*
 				 * if this is a triangle, move the vertices as well
 				 */

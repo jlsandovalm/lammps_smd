@@ -41,8 +41,6 @@ public:
 	int ReadViscosities(CSimpleIni &ini, const int itype);
 	int ReadViscNewton(CSimpleIni &ini, const int itype);
 
-	//CSimpleIni ini;
-
 	// general material properties
 	struct gProp {
 
@@ -53,6 +51,7 @@ public:
 			eosType = strengthType = viscType = 0;
 			K0 = 0.0;
 			G0 = 0.0;
+			thermal_conductivity = 0.0;
 			strengthName = "NONE";
 			eosName = "NONE";
 			viscName = "NONE";
@@ -63,6 +62,7 @@ public:
 		double cp; // heat capacity
 		double K0;
 		double G0;
+		double thermal_conductivity;
 		int eosType, strengthType, viscType;
 		int eosTypeIdx, strengthTypeIdx, viscTypeIdx;
 		std::string strengthName, eosName, viscName;

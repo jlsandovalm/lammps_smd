@@ -640,7 +640,7 @@ void PairSmdMpmLin::ComputeGridForces() {
 						double wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
 
 						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
-						lgridnodes[node_index].f += scaledStress * g; // + wf * otherForces;
+						lgridnodes[node_index].f += scaledStress * g;
 					}
 				}
 			}
@@ -722,12 +722,6 @@ void PairSmdMpmLin::GridToPoints() {
 
 /* ---------------------------------------------------------------------- */
 void PairSmdMpmLin::UpdateDeformationGradient() {
-
-	/*
-	 * this is currently deactivated because the smd_data_9 array is used for storing
-	 * the APIC correction matrix Bp
-	 */
-
 	double **x = atom->x;
 	double **v = atom->v;
 	double **smd_data_9 = atom->smd_data_9;
@@ -750,47 +744,6 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 			Fincr = (update->dt * L[i]).exp();
 			F = Fincr * Map<Matrix3d>(smd_data_9[i]);
 			J[i] = F.determinant();
-
-//			if (symmetry_plane_x_plus_exists) {
-//				if (x[i][0] < symmetry_plane_x_plus_location) {
-//					x[i][0] = symmetry_plane_x_plus_location;
-//					v[i][0] = 0.0;
-//					//J[i] = 0.5;
-//				}
-//			}
-//			if (symmetry_plane_x_minus_exists) {
-//				if (x[i][0] > symmetry_plane_x_minus_location) {
-//					x[i][0] = symmetry_plane_x_minus_location;
-//					v[i][0] = 0.0;
-//					//J[i] = 0.5;
-//				}
-//			}
-//			if (symmetry_plane_y_plus_exists) {
-//				if (x[i][1] < symmetry_plane_y_plus_location) {
-//					x[i][1] = symmetry_plane_y_plus_location;
-//					v[i][1] = 0.0;
-//					//printf("contact!\n");
-//					//J[i] = 0.5;
-//				}
-//			}
-//			if (symmetry_plane_y_minus_exists) {
-//				if (x[i][1] > symmetry_plane_y_minus_location) {
-//					x[i][1] = symmetry_plane_y_minus_location;
-//					v[i][1] = 0.0;
-//					//J[i] = 0.5;
-//				}
-//			}
-//			if (symmetry_plane_z_plus_exists) {
-//				if (x[i][2] < symmetry_plane_z_plus_location) {
-//					v[i][2] = 0.0;
-//				}
-//			}
-//			if (symmetry_plane_z_minus_exists) {
-//				if (x[i][2] > symmetry_plane_z_minus_location) {
-//					v[i][2] = 0.0;
-//				}
-//			}
-
 			vol[i] = vol0[i] * J[i];
 
 			//cout << "this is F after update" << endl << F << endl;
@@ -858,7 +811,6 @@ void PairSmdMpmLin::compute(int eflag, int vflag) {
 	}
 
 	MUSL();
-//USF();
 }
 
 void PairSmdMpmLin::USF() {
