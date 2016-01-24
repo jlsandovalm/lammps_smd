@@ -12,10 +12,10 @@ variable        rho_water equal 1000 # mass density water
 ####################################################################################################
 # INITIALIZE LAMMPS
 ####################################################################################################
-processors      4 1 1
+#processors      4 1 1
 units		si
 dimension       2
-boundary        f f p
+boundary        s s p
 atom_style      smd
 comm_modify     vel yes
 newton          off
@@ -67,7 +67,7 @@ variable        mpm_cellsize equal 1*${l0}
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
 # sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1.01
-pair_style      smd/mpm_linear ${mpm_cellsize}  &
+pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 &
                 FLIP 0.99 2d
 pair_coeff      1 1 
 
@@ -90,7 +90,7 @@ compute         damage water smd/damage
 compute         F all smd/tlsph_defgrad
 compute         nn all smd/ulsph_num_neighs
 
-dump            dump_id all custom 100 dump.LAMMPS id type x y &
+dump            dump_id all custom 1 dump.LAMMPS id type x y &
                 fx fy vx vy c_eint c_contact_radius mol &
                 radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_damage &
 		c_F[1] c_F[5] c_F[9] c_F[10] c_nn

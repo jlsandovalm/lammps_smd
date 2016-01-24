@@ -266,7 +266,7 @@ void PairSmdMpmLin::CreateGrid() {
 	grid_nz = (maxiz - miniz) + 4;
 
 	grid_nz = MAX(grid_nz, 4);
-	gimp_offset = 1 + grid_nx + grid_nx * grid_ny;
+	gimp_offset = 2 * (1 + grid_nx + grid_nx * grid_ny);
 
 	// allocate grid storage
 
@@ -1778,41 +1778,41 @@ void PairSmdMpmLin::AdvanceParticles() {
 					}
 				}
 
-				if (symmetry_plane_x_plus_exists) {
-
-//					if (fabs(x[i][0] - symmetry_plane_x_plus_location) < 0.1 * cellsize) {
+//				if (symmetry_plane_x_plus_exists) {
+//
+////					if (fabs(x[i][0] - symmetry_plane_x_plus_location) < 0.1 * cellsize) {
+////						x[i][0] = symmetry_plane_x_plus_location;
+////						//particleVelocities[i](0) = 0.0;
+////						//v[i][0] = 0.0;
+////					}
+//
+//					if (x[i][0] < symmetry_plane_x_plus_location) {
 //						x[i][0] = symmetry_plane_x_plus_location;
-//						//particleVelocities[i](0) = 0.0;
-//						//v[i][0] = 0.0;
+//						v[i][0] = 0.0;
+//						particleVelocities[i](0) = 0.0;
 //					}
-
-					if (x[i][0] < symmetry_plane_x_plus_location) {
-						x[i][0] = symmetry_plane_x_plus_location;
-						v[i][0] = 0.0;
-						particleVelocities[i](0) = 0.0;
-					}
-				}
-				if (symmetry_plane_x_minus_exists) {
-					if (x[i][0] > symmetry_plane_x_minus_location) {
-						x[i][0] = symmetry_plane_x_minus_location;
-						//particleVelocities[i](0) = 0.0;
-						v[i][0] = 0.0;
-					}
-				}
-				if (symmetry_plane_y_plus_exists) {
-					if (x[i][1] < symmetry_plane_y_plus_location) {
-						//printf("particle y=%f below y+ symmetry plane. resetting to %f\n", x[i][1], symmetry_plane_y_plus_location);
-						x[i][1] = symmetry_plane_y_plus_location;
-						//particleVelocities[i](1) = 0.0;
-						v[i][1] = 0.0;
-					}
-				}
-				if (symmetry_plane_y_minus_exists) {
-					if (x[i][1] > symmetry_plane_y_minus_location) {
-						x[i][1] = symmetry_plane_y_minus_location;
-						v[i][1] = 0.0;
-					}
-				}
+//				}
+//				if (symmetry_plane_x_minus_exists) {
+//					if (x[i][0] > symmetry_plane_x_minus_location) {
+//						x[i][0] = symmetry_plane_x_minus_location;
+//						//particleVelocities[i](0) = 0.0;
+//						v[i][0] = 0.0;
+//					}
+//				}
+//				if (symmetry_plane_y_plus_exists) {
+//					if (x[i][1] < symmetry_plane_y_plus_location) {
+//						//printf("particle y=%f below y+ symmetry plane. resetting to %f\n", x[i][1], symmetry_plane_y_plus_location);
+//						x[i][1] = symmetry_plane_y_plus_location;
+//						//particleVelocities[i](1) = 0.0;
+//						//v[i][1] = 0.0;
+//					}
+//				}
+//				if (symmetry_plane_y_minus_exists) {
+//					if (x[i][1] > symmetry_plane_y_minus_location) {
+//						x[i][1] = symmetry_plane_y_minus_location;
+//						v[i][1] = 0.0;
+//					}
+//				}
 //				if (symmetry_plane_z_plus_exists) {
 //					if (x[i][2] < symmetry_plane_z_plus_location) {
 //						x[i][2] = symmetry_plane_z_plus_location;
@@ -2015,6 +2015,8 @@ void PairSmdMpmLin::MirrorCellVelocity(int source, int target, int component) {
 
 void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction) {
 
+	printf("icell is %d\n", icell);
+
 	if (direction == Xplus) {
 		lgridnodes[icell].v(0) = 0.0;
 		lgridnodes[icell].f(0) = 0.0;
@@ -2053,8 +2055,9 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		// mirror velocity of nodes on the +-side to the -side
 		int source = iy + 1;
 		int target = iy - 1;
-		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
-		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
+		int sourcecell = gimp_offset + ix + source * grid_nx + iz * grid_nx * grid_ny;
+		int targetcell = gimp_offset + ix + target * grid_nx + iz * grid_nx * grid_ny;
+		printf("ix=%d, iy=%d, iz=%d, source is %d, target is %d\n", ix, iy, iz, sourcecell, targetcell);
 		MirrorCellVelocity(sourcecell, targetcell, 1);
 
 	} else if (direction == Yminus) {
@@ -2123,14 +2126,14 @@ void PairSmdMpmLin::CheckSymmetryBC() {
 		//double ssy = icellsize * symmetry_plane_y_plus_location - static_cast<double>(miniy); // shifted position in grid coords
 		double ssy = icellsize * (symmetry_plane_y_plus_location - miny);
 		int ssy_index = static_cast<int>(ssy) - 1;
-		if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
+		//if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
 			for (int ix = 0; ix < grid_nx; ix++) {
 				for (int iz = 0; iz < grid_nz; iz++) {
 					int icell = gimp_offset + ix + ssy_index * grid_nx + iz * grid_nx * grid_ny;
 					ApplySymmetryBC(icell, ix, ssy_index, iz, Yplus);
 				}
 			}
-		}
+		//}
 	}
 
 	if (symmetry_plane_y_minus_exists) {

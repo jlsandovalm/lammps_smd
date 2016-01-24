@@ -44,7 +44,7 @@ boundary        sm sm p # simulation box boundaries
 atom_style      smd
 atom_modify	map array
 comm_modify     vel yes
-neigh_modify    every 10 delay 0 check yes # re-build neighbor list every 10 steps
+neigh_modify    every 10 delay 0 check no # re-build neighbor list every 10 steps
 newton          off
 
 ####################################################################################################
