@@ -151,6 +151,7 @@ private:
 	bool corotated;
 	bool true_deformation;
 	int iproc;
+	int gimp_offset;
 
 };
 

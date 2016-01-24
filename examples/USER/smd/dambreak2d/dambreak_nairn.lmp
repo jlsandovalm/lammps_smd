@@ -26,7 +26,7 @@ comm_style      brick
 ####################################################################################################
 # create simulation box, a container, and a water column
 variable        l0 equal 0.005# initial particle lattice spacing
-region          box block -0.01 1.01 -0.01 2.01 -0.001 0.001 units box
+region          box block -0.01 1.1 -0.01 2.01 -0.001 0.001 units box
 create_box      1 box
 
 ####################################################################################################
@@ -66,7 +66,8 @@ variable        mpm_cellsize equal 1*${l0}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1.01 &
+# sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1.01
+pair_style      smd/mpm_linear ${mpm_cellsize}  &
                 FLIP 0.99 2d
 pair_coeff      1 1 
 

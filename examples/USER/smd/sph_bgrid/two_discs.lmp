@@ -44,7 +44,7 @@ set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
 set             group all smd_contact_radius ${cr}
 
-pair_style      hybrid/overlay  smd/hertz 1.0 smd/mpm_linear ${mpm_cellsize} FLIP 1.0 2d
+pair_style      hybrid/overlay  smd/hertz 1.0 smd/mpm_linear ${mpm_cellsize} FLIP 1.0 2d corotated true_deformation
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 smd/mpm_linear *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
