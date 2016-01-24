@@ -97,7 +97,7 @@ protected:
 	double *particleHeat, *particleHeatRate;
 	double *J; // determinant of deformation gradient
 	double *vol; // current volume
-	Matrix3d *stressTensor, *L, *F;
+	Matrix3d *stressTensor, *L, *F, *R;
 	Vector3d *heat_gradient;
 
 	double dtCFL;
@@ -148,7 +148,8 @@ private:
 	double noslip_symmetry_plane_y_plus_location, noslip_symmetry_plane_y_minus_location;
 
 	SmdMatDB matDB;
-
+	bool corotated;
+	bool true_deformation;
 	int iproc;
 
 };

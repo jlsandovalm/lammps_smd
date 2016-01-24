@@ -76,7 +76,7 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	vol = NULL;
 
 	nmax = 0; // make sure no atom on this proc such that initial memory allocation is correct
-	stressTensor = L = F = NULL;
+	stressTensor = L = F = R = NULL;
 	particleVelocities = particleAccelerations = NULL;
 	heat_gradient = NULL;
 	particleHeat = particleHeatRate = NULL;
@@ -100,6 +100,8 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	if (iproc == 0) {
 		matDB.PrintData();
 	}
+	corotated = false;
+	true_deformation = false;
 
 }
 
@@ -373,8 +375,15 @@ void PairSmdMpmLin::VelocitiesToGrid() {
 
 			// pre-compute all possible quantities
 			double particle_mass = rmass[i];
-			//vel_particle << v[i][0], v[i][1], v[i][2];
-			vel_particle = particleVelocities[i];
+			if (true_deformation) {
+				// particles move with particleVelocities, so it should be more true to use this
+				// velocitz fore computing acceleration. However, this leads to particle disorder
+				// for elastic deformations and should only be used for pure fluid simulations
+				vel_particle = particleVelocities[i];
+			} else {
+				// this is better for elastic deformations
+				vel_particle << v[i][0], v[i][1], v[i][2];
+			}
 			vel_particle *= particle_mass;
 
 			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
@@ -610,12 +619,11 @@ void PairSmdMpmLin::ComputeVelocityGradient() {
 // ---- end velocity gradients ----
 
 void PairSmdMpmLin::ComputeGridForces() {
-	double **f = atom->f;
 	int *type = atom->type;
 	int nall = atom->nlocal + atom->nghost;
 	int i, itype, ref_node;
 	double wfx[4], wfy[4], wfz[4], wfdx[4], wfdy[4], wfdz[4];
-	Vector3d g, otherForces;
+	Vector3d g;
 	Matrix3d scaledStress;
 
 // ---- compute internal forces ---
@@ -625,8 +633,6 @@ void PairSmdMpmLin::ComputeGridForces() {
 		if (setflag[itype][itype]) {
 
 			scaledStress = vol[i] * stressTensor[i];
-			otherForces << f[i][0], f[i][1], f[i][2];
-
 			PreComputeGridWeightsAndDerivatives(i, ref_node, wfx, wfy, wfz, wfdx, wfdy, wfdz);
 
 			// loop over all cell neighbors for this particle
@@ -637,7 +643,6 @@ void PairSmdMpmLin::ComputeGridForces() {
 						g(0) = wfdx[ix] * wfy[iy] * wfz[iz]; // this is the kernel gradient
 						g(1) = wfdy[iy] * wfx[ix] * wfz[iz];
 						g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
-						double wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
 
 						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
 						lgridnodes[node_index].f += scaledStress * g;
@@ -722,15 +727,15 @@ void PairSmdMpmLin::GridToPoints() {
 
 /* ---------------------------------------------------------------------- */
 void PairSmdMpmLin::UpdateDeformationGradient() {
-	double **x = atom->x;
-	double **v = atom->v;
 	double **smd_data_9 = atom->smd_data_9;
 	double *vol0 = atom->vfrac;
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
 	int i, itype;
-	Matrix3d F, Fincr, eye;
+	Matrix3d F, Fincr, eye, U;
+	//bool status;
 	eye.setIdentity();
+	Affine3d T;
 
 	for (i = 0; i < nlocal; i++) {
 
@@ -745,6 +750,21 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 			F = Fincr * Map<Matrix3d>(smd_data_9[i]);
 			J[i] = F.determinant();
 			vol[i] = vol0[i] * J[i];
+
+			if (corotated) {
+				/*
+				 * perform polar decomposition
+				 */
+				T = F;
+				R[i] = T.rotation();
+//				status = PolDec(F, R[i], U, false); // polar decomposition of the deformation gradient, F = R * U
+//				if (!status) {
+//					error->message(FLERR, "Polar decomposition of deformation gradient failed.\n");
+//				}
+
+			} else {
+				R[i].setIdentity();
+			}
 
 			//cout << "this is F after update" << endl << F << endl;
 
@@ -792,6 +812,8 @@ void PairSmdMpmLin::compute(int eflag, int vflag) {
 		L = new Matrix3d[nmax];
 		delete[] F;
 		F = new Matrix3d[nmax];
+		delete[] R;
+		R = new Matrix3d[nmax];
 		delete[] particleVelocities;
 		particleVelocities = new Vector3d[nmax];
 		delete[] particleAccelerations;
@@ -945,7 +967,9 @@ void PairSmdMpmLin::GetStress() {
 	int *type = atom->type;
 	int i, itype;
 	int nlocal = atom->nlocal;
-	Matrix3d F;
+	Matrix3d F, U;
+	Affine3d T;
+	//bool status;
 
 	for (i = 0; i < nlocal; i++) {
 		itype = type[i];
@@ -964,6 +988,23 @@ void PairSmdMpmLin::GetStress() {
 			F = Map<Matrix3d>(smd_data_9[i]);
 			J[i] = F.determinant();
 			vol[i] = vol0[i] * J[i];
+
+			if (corotated) {
+				/*
+				 * perform polar decomposition
+				 */
+				T = F;
+				R[i] = T.rotation();
+//				status = PolDec(F, R[i], U, false); // polar decomposition of the deformation gradient, F = R * U
+//				if (!status) {
+//					error->message(FLERR, "Polar decomposition of deformation gradient failed.\n");
+//				}
+
+				stressTensor[i] = (R[i] * stressTensor[i] * R[i].transpose()).eval();
+
+			} else {
+				R[i].setIdentity();
+			}
 		}
 	}
 }
@@ -978,7 +1019,6 @@ void PairSmdMpmLin::UpdateStress() {
 	double **tlsph_stress = atom->smd_stress;
 	double **smd_visc_stress = atom->smd_visc_stress;
 //double *heat = atom->heat;
-	double *e = atom->e;
 	double *de = atom->de;
 //double **x = atom->x;
 	int *type = atom->type;
@@ -1009,6 +1049,9 @@ void PairSmdMpmLin::UpdateStress() {
 			K_eff = 0.0;
 			G_eff = 0.0;
 			D = 0.5 * (L[i] + L[i].transpose());
+			if (corotated) {
+				D = (R[i].transpose() * D * R[i]).eval(); // remove rotation
+			}
 
 			d_iso = D.trace();
 			d_dev = Deviator(D);
@@ -1017,7 +1060,6 @@ void PairSmdMpmLin::UpdateStress() {
 
 			double mu = 1.0 - J[i];
 			double temperature = 1.0;
-			double soundspeed;
 			matDB.ComputePressure(mu, temperature, itype, newPressure, K_eff);
 			//if (fabs(mu) > 1.0e-3) printf("j=%g, , mu=%g, p=%g\n", J[i], mu, newPressure);
 
@@ -1116,6 +1158,13 @@ void PairSmdMpmLin::UpdateStress() {
 			 */
 
 			de[i] += FACTOR * vol[i] * (stressTensor[i].cwiseProduct(D)).sum();
+
+			/*
+			 * finally, rotate stress tensor forward
+			 */
+			if (corotated) {
+				stressTensor[i] = (R[i] * stressTensor[i] * R[i].transpose()).eval();
+			}
 
 		}
 // end if (setflag[itype][itype] == 1)
@@ -1346,6 +1395,16 @@ void PairSmdMpmLin::settings(int narg, char **arg) {
 			if (comm->me == 0) {
 				printf("... region %s with constant velocity %f %f %f\n", idregion, const_vx, const_vy, const_vz);
 			}
+		} else if (strcmp(arg[iarg], "corotated") == 0) {
+			if (comm->me == 0) {
+				printf("... will use corotated formulation for stress rates\n");
+				corotated = true;
+			}
+		} else if (strcmp(arg[iarg], "true_deformation") == 0) {
+			if (comm->me == 0) {
+				printf("... will use true deformation for velocity gradient\n");
+			}
+			true_deformation = true;
 
 		} else {
 			char msg[128];
@@ -1713,21 +1772,29 @@ void PairSmdMpmLin::AdvanceParticles() {
 				}
 
 				if (symmetry_plane_x_plus_exists) {
-					if (x[i][0] < symmetry_plane_x_plus_location) {
+
+					if (fabs(x[i][0] - symmetry_plane_x_plus_location) < 0.1 * cellsize) {
 						x[i][0] = symmetry_plane_x_plus_location;
 						//particleVelocities[i](0) = 0.0;
 						//v[i][0] = 0.0;
 					}
+
+//					if (x[i][0] < symmetry_plane_x_plus_location) {
+//						x[i][0] = symmetry_plane_x_plus_location;
+//						particleVelocities[i](0) = 0.0;
+//						v[i][0] = 0.0;
+//					}
 				}
-				if (symmetry_plane_x_minus_exists) {
-					if (x[i][0] > symmetry_plane_x_minus_location) {
-						x[i][0] = symmetry_plane_x_minus_location;
-						//particleVelocities[i](0) = 0.0;
-						//v[i][0] = 0.0;
-					}
-				}
+//				if (symmetry_plane_x_minus_exists) {
+//					if (x[i][0] > symmetry_plane_x_minus_location) {
+//						x[i][0] = symmetry_plane_x_minus_location;
+//						//particleVelocities[i](0) = 0.0;
+//						//v[i][0] = 0.0;
+//					}
+//				}
 //				if (symmetry_plane_y_plus_exists) {
 //					if (x[i][1] < symmetry_plane_y_plus_location) {
+//						printf("particle y=%f below y+ symmetry plane. resetting to %f\n", x[i][1], symmetry_plane_y_plus_location);
 //						x[i][1] = symmetry_plane_y_plus_location;
 //						//particleVelocities[i](1) = 0.0;
 //						//v[i][1] = 0.0;
@@ -1735,17 +1802,20 @@ void PairSmdMpmLin::AdvanceParticles() {
 //				}
 //				if (symmetry_plane_y_minus_exists) {
 //					if (x[i][1] > symmetry_plane_y_minus_location) {
-//						v[i][1] = 0.0;
+//						x[i][1] = symmetry_plane_y_minus_location;
+//						//v[i][1] = 0.0;
 //					}
 //				}
 //				if (symmetry_plane_z_plus_exists) {
 //					if (x[i][2] < symmetry_plane_z_plus_location) {
-//						v[i][2] = 0.0;
+//						x[i][2] = symmetry_plane_z_plus_location;
+//						//v[i][2] = 0.0;
 //					}
 //				}
 //				if (symmetry_plane_z_minus_exists) {
 //					if (x[i][2] > symmetry_plane_z_minus_location) {
-//						v[i][2] = 0.0;
+//						x[i][2] = symmetry_plane_z_minus_location;
+//						//v[i][2] = 0.0;
 //					}
 //				}
 
@@ -1998,10 +2068,7 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int target = iz - 1;
 		int sourcecell = ix + iy * grid_nx + source * grid_nx * grid_ny;
 		int targetcell = ix + iy * grid_nx + target * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(2) = -lgridnodes[sourcecell].v(2);
-		lgridnodes[targetcell].f(2) = -lgridnodes[sourcecell].f(2);
-		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
-		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
+		MirrorCellVelocity(sourcecell, targetcell, 2);
 	} else if (direction == Zminus) {
 		lgridnodes[icell].v(2) = 0.0;
 		lgridnodes[icell].f(2) = 0.0;
@@ -2010,10 +2077,7 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int target = iz + 1;
 		int sourcecell = ix + iy * grid_nx + source * grid_nx * grid_ny;
 		int targetcell = ix + iy * grid_nx + target * grid_nx * grid_ny;
-		lgridnodes[targetcell].v(2) = -lgridnodes[sourcecell].v(2);
-		lgridnodes[targetcell].f(2) = -lgridnodes[sourcecell].f(2);
-		lgridnodes[targetcell].mass = lgridnodes[sourcecell].mass;
-		lgridnodes[targetcell].imass = lgridnodes[sourcecell].imass;
+		MirrorCellVelocity(sourcecell, targetcell, 2);
 	}
 
 }

@@ -38,8 +38,10 @@
 #include "string.h"
 #include <Eigen/Eigen>
 #include <Eigen/Geometry>
+#include "smd_math.h"
 using namespace Eigen;
 using namespace std;
+using namespace SMD_Math;
 using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
@@ -89,32 +91,29 @@ void ComputeSmdTlsphShape::compute_peratom() {
 		array_atom = strainVector;
 	}
 
-	int itmp = 0;
-	Matrix3d *R = (Matrix3d *) force->pair->extract("smd/tlsph/rotation_ptr", itmp);
-	if (R == NULL) {
-		error->all(FLERR, "compute smd/tlsph_shape failed to access rotation array");
-	}
-
-	Matrix3d *F = (Matrix3d *) force->pair->extract("smd/tlsph/Fincr_ptr", itmp);
-	if (F == NULL) {
-		error->all(FLERR, "compute smd/tlsph_shape failed to access deformation gradient array");
-	}
-
 	int *mask = atom->mask;
+	double **smd_data_9 = atom->smd_data_9;
 	int nlocal = atom->nlocal;
-	Matrix3d E, eye;
+	Matrix3d E, eye, R, U, F;
 	eye.setIdentity();
 	Quaterniond q;
+	bool status;
 
 	for (int i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
 
-			E = 0.5 * (F[i].transpose() * F[i] - eye); // Green-Lagrange strain
+			F = Map<Matrix3d>(smd_data_9[i]);
+			status = PolDec(F, R, U, false); // polar decomposition of the deformation gradient, F = R * U
+			if (!status) {
+				error->message(FLERR, "Polar decomposition of deformation gradient failed.\n");
+			}
+
+			E = 0.5 * (F.transpose() * F - eye); // Green-Lagrange strain
 			strainVector[i][0] = contact_radius[i] * (1.0 + E(0, 0));
 			strainVector[i][1] = contact_radius[i] * (1.0 + E(1, 1));
 			strainVector[i][2] = contact_radius[i] * (1.0 + E(2, 2));
 
-			q = R[i]; // convert pure rotation matrix to quaternion
+			q = R; // convert pure rotation matrix to quaternion
 			strainVector[i][3] = q.w();
 			strainVector[i][4] = q.x();
 			strainVector[i][5] = q.y();
