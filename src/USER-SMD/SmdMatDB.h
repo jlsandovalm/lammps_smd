@@ -22,7 +22,7 @@ public:
 	int ReadSectionGeneral(CSimpleIni &ini, const int itype);
 	void ComputePressure(const double mu, const double temperature, const int itype, double &pressure, double &K_eff);
 	void ComputeDevStressIncrement(const Eigen::Matrix3d d_dev, const int itype, const Eigen::Matrix3d oldStressDeviator,
-			double &plasticStrainIncrement, Eigen::Matrix3d &stressIncrement);
+			double &plasticStrainIncrement, Eigen::Matrix3d &stressIncrement, double &plastic_work);
 	void ComputeViscousStress(const Eigen::Matrix3d d_dev, const int itype, Eigen::Matrix3d &viscousStress);
 	void PrintData();
 	void DetermineReferenceSoundspeed();
@@ -149,7 +149,7 @@ public:
 		}
 
 		void ComputeStressIncrement(const Eigen::Matrix3d deviatoricStrainIncrement, const Eigen::Matrix3d oldStressDeviator,
-				double &plastic_strain_increment, Eigen::Matrix3d &deviatoricStressIncrement) {
+				double &plastic_strain_increment, Eigen::Matrix3d &deviatoricStressIncrement, double &plastic_work) {
 
 			/*
 			 * perform a trial elastic update to the deviatoric stress
@@ -167,7 +167,7 @@ public:
 				 * no yielding has occured.
 				 * final deviatoric stress is trial deviatoric stress
 				 */
-				plastic_strain_increment = 0.0;
+				plastic_strain_increment = plastic_work = 0.0;
 				//printf("no yield\n");
 
 			} else {
@@ -175,6 +175,7 @@ public:
 				/*
 				 * yielding has occured
 				 */
+				//plastic_strain_increment = sqrt(3. / 2.) * (J2 - yieldStress) / (3.0 * G);
 				plastic_strain_increment = (J2 - yieldStress) / (3.0 * G);
 				//printf("yield, plastic strain increment is %f, J2=%f, yield stress=%f\n", plastic_strain_increment, J2, yieldStress);
 				/*
@@ -189,8 +190,28 @@ public:
 				 */
 				deviatoricStressIncrement = sigmaTrial_dev - oldStressDeviator;
 
+				/*
+				 * back-calculate elastic strain from stress increment using linear
+				 * behavior. Decompose total strain increment in elastic and plastic parts.
+				 */
+
+				//Eigen::Matrix3d elasticStrainIncrement = deviatoricStressIncrement / (2.0 * G);
+				//Eigen::Matrix3d plasticStrainIncrement = deviatoricStrainIncrement - elasticStrainIncrement;
+				//double ratio = plastic_strain_increment / plasticStrainIncrement.norm();
+				//printf("ratio p1/p2 = %f\n", ratio);
+
+				/*
+				 * plastic heating: plastic strain increment x yield stress
+				 */
+				//double heat_increment = plasticStrainIncrement.norm() * yieldStress;
+				//double heat_increment = plastic_strain_increment * yieldStress;
+				//printf("heat increment (sans volume term) is %f\n", heat_increment);
+
+
 				sigmaTrial_dev = oldStressDeviator + deviatoricStressIncrement;
 				//printf("CHECK, J2=%f should be smaller than yield stress\n", sqrt(3. / 2.) * sigmaTrial_dev.norm());
+
+				plastic_work = plastic_strain_increment * yieldStress;
 			}
 
 		}

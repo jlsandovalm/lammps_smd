@@ -956,7 +956,7 @@ void PairSmdMpmLin::MUSL() {
 	AdvanceParticlesEnergy();
 	timeone_UpdateParticles += MPI_Wtime();
 
-	DumpGrid();
+	//DumpGrid();
 
 	DestroyGrid();
 }
@@ -1020,7 +1020,7 @@ void PairSmdMpmLin::UpdateStress() {
 	double *eff_plastic_strain = atom->eff_plastic_strain;
 	double **tlsph_stress = atom->smd_stress;
 	double **smd_visc_stress = atom->smd_visc_stress;
-//double *heat = atom->heat;
+	double *heat = atom->heat;
 	double *de = atom->de;
 //double **x = atom->x;
 	int *type = atom->type;
@@ -1036,6 +1036,7 @@ void PairSmdMpmLin::UpdateStress() {
 	double K_eff; // effective bulk modulus
 	double M, p_wave_speed;
 	double rho, effectiveViscosity, d_iso;
+	double plastic_work; // dissipated plastic heat per unit volume
 	Matrix3d deltaStressDev, oldStress;
 
 	dtCFL = 1.0e22;
@@ -1046,6 +1047,7 @@ void PairSmdMpmLin::UpdateStress() {
 		if (setflag[itype][itype] == 1) {
 
 			newPressure = 0.0;
+			plastic_work = 0.0;
 
 			effectiveViscosity = 0.0;
 			K_eff = 0.0;
@@ -1087,7 +1089,7 @@ void PairSmdMpmLin::UpdateStress() {
 				devStrainIncrement = dt * d_dev;
 
 				matDB.ComputeDevStressIncrement(devStrainIncrement, itype, oldStressDeviator, plasticStrainIncrement,
-						stressIncrement);
+						stressIncrement, plastic_work);
 				eff_plastic_strain[i] += plasticStrainIncrement;
 
 				newStressDeviator = oldStressDeviator + stressIncrement;
@@ -1101,6 +1103,7 @@ void PairSmdMpmLin::UpdateStress() {
 			/*
 			 * assemble updated stress Tensor from pressure and deviatoric parts
 			 */
+			stressIncrement =  -newPressure * eye + newStressDeviator - stressTensor[i];
 			stressTensor[i] = -newPressure * eye + newStressDeviator;
 			//cout << "this is the new stress deviator: " << newStressDeviator << endl;
 
@@ -1156,10 +1159,11 @@ void PairSmdMpmLin::UpdateStress() {
 			}
 
 			/*
-			 * elastic energy rate
+			 * elastic energy rate -- without plastic heating
 			 */
 
-			de[i] += FACTOR * vol[i] * (stressTensor[i].cwiseProduct(D)).sum();
+			de[i] += FACTOR * vol[i] * ((stressTensor[i].cwiseProduct(D)).sum() - plastic_work/dt);
+			heat[i] += vol[i] * plastic_work;
 
 			/*
 			 * finally, rotate stress tensor forward
@@ -2004,6 +2008,7 @@ void PairSmdMpmLin::MirrorCellVelocity(int source, int target, int component) {
 	lgridnodes[target].f = lgridnodes[source].f;
 	lgridnodes[target].mass = lgridnodes[source].mass;
 	lgridnodes[target].imass = lgridnodes[source].imass;
+	lgridnodes[target].heat = lgridnodes[source].heat;
 
 	lgridnodes[target].v(component) *= -1.0;
 	lgridnodes[target].f(component) *= -1.0;

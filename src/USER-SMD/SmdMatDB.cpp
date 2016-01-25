@@ -473,7 +473,7 @@ void SmdMatDB::ComputePressure(const double mu, const double temperature, const 
 }
 
 void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, const Matrix3d oldStressDeviator,
-		double &plasticStrainIncrement, Matrix3d &stressIncrement) {
+		double &plasticStrainIncrement, Matrix3d &stressIncrement, double &plastic_work) {
 
 	int strengthType = gProps[itype].strengthType;
 	int strengthIdx = gProps[itype].strengthTypeIdx;
@@ -482,7 +482,7 @@ void SmdMatDB::ComputeDevStressIncrement(const Matrix3d d_dev, const int itype, 
 		stressIncrement = strengthLinear_vec[strengthIdx].ComputeStressIncrement(d_dev);
 	} else if (strengthType == 2) { // simple plasticity strength model
 		strengthSimplePlasticity_vec[strengthIdx].ComputeStressIncrement(d_dev, oldStressDeviator, plasticStrainIncrement,
-				stressIncrement);
+				stressIncrement, plastic_work);
 	} else {
 		stressIncrement.setZero();
 	}
