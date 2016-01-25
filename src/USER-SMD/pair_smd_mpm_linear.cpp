@@ -265,14 +265,13 @@ void PairSmdMpmLin::CreateGrid() {
 //	grid_ny = (maxiy - miniy) + 4;
 //	grid_nz = (maxiz - miniz) + 4;
 
-	grid_nx = static_cast<int>(icellsize * (maxx - minx)) + 5;
-	grid_ny = static_cast<int>(icellsize * (maxy - miny)) + 5;
-	grid_nz = static_cast<int>(icellsize * (maxz - minz)) + 5;
+	grid_nx = static_cast<int>(icellsize * (maxx - minx)) + 10;
+	grid_ny = static_cast<int>(icellsize * (maxy - miny)) + 10;
+	grid_nz = static_cast<int>(icellsize * (maxz - minz)) + 10;
 
 	grid_nz = MAX(grid_nz, 4);
-	gimp_offset = (1 + grid_nx + grid_nx * grid_ny);
-
-
+	gimp_offset = (1 + grid_nx + grid_nx * grid_ny) + 2 + 2*grid_nx + 2 * grid_nx * grid_ny;
+	//gimp_offset = (grid_nx + grid_ny + grid_nz);
 
 	// allocate grid storage
 
@@ -280,7 +279,7 @@ void PairSmdMpmLin::CreateGrid() {
 //	printf("proc %d: nx=%f, ny=%f, nz=%f\n", comm->me, maxx, maxy, maxz);
 //	printf("proc %d: nx=%d, ny=%d, nz=%d\n", comm->me, grid_nx, grid_ny, grid_nz);
 
-	Ncells = grid_nx * grid_ny * grid_nz + 2*gimp_offset;
+	Ncells = grid_nx * grid_ny * grid_nz + 2 * gimp_offset;
 	lgridnodes = NULL;
 	lgridnodes = new Gridnode[Ncells];
 
@@ -438,9 +437,9 @@ void PairSmdMpmLin::PreComputeGridWeights(const int i, int &ref_node, double *wf
 	double ssy = icellsize * (x[i][1] - miny); // shifted position in grid coords
 	double ssz = icellsize * (x[i][2] - minz); // shifted position in grid coords
 
-	int ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
-	int ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
-	int ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	int ref_ix = static_cast<int>(ssx) -1; // this is the x location of the reference node in cell space
+	int ref_iy = static_cast<int>(ssy) -1; // this is the y location of the reference node in cell space
+	int ref_iz = static_cast<int>(ssz) - 1; // this is the z location of the reference node in cell space
 	ref_node = gimp_offset + ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
 
 	if ((ref_node < 0) || (ref_node > Ncells - 1)) { // memory access error check
@@ -474,9 +473,9 @@ void PairSmdMpmLin::PreComputeGridWeightsAndDerivatives(const int i, int &ref_no
 	double ssy = icellsize * (x[i][1] - miny); // shifted position in grid coords
 	double ssz = icellsize * (x[i][2] - minz); // shifted position in grid coords
 
-	int ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
-	int ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
-	int ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	int ref_ix = static_cast<int>(ssx) - 1; // this is the x location of the reference node in cell space
+	int ref_iy = static_cast<int>(ssy) - 1; // this is the y location of the reference node in cell space
+	int ref_iz = static_cast<int>(ssz) - 1; // this is the z location of the reference node in cell space
 	ref_node = gimp_offset + ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
 
 	if ((ref_node < 0) || (ref_node > Ncells - 1)) { // memory access error check
@@ -968,6 +967,8 @@ void PairSmdMpmLin::MUSL() {
 	timeone_UpdateParticles -= MPI_Wtime();
 	AdvanceParticlesEnergy();
 	timeone_UpdateParticles += MPI_Wtime();
+
+	//DumpGrid();
 
 	DestroyGrid();
 }
@@ -1805,14 +1806,14 @@ void PairSmdMpmLin::AdvanceParticles() {
 //						v[i][0] = 0.0;
 //					}
 //				}
-//				if (symmetry_plane_y_plus_exists) {
-//					if (x[i][1] < symmetry_plane_y_plus_location) {
-//						//printf("particle y=%f below y+ symmetry plane. resetting to %f\n", x[i][1], symmetry_plane_y_plus_location);
-//						x[i][1] = symmetry_plane_y_plus_location;
-//						//particleVelocities[i](1) = 0.0;
-//						//v[i][1] = 0.0;
-//					}
-//				}
+				if (symmetry_plane_y_plus_exists) {
+					if (x[i][1] < symmetry_plane_y_plus_location) {
+						//printf("particle y=%f below y+ symmetry plane. resetting to %f\n", x[i][1], symmetry_plane_y_plus_location);
+						x[i][1] = symmetry_plane_y_plus_location;
+						particleVelocities[i](1) = 0.0;
+						v[i][1] = 0.0;
+					}
+				}
 //				if (symmetry_plane_y_minus_exists) {
 //					if (x[i][1] > symmetry_plane_y_minus_location) {
 //						x[i][1] = symmetry_plane_y_minus_location;
@@ -1965,14 +1966,15 @@ void PairSmdMpmLin::DumpGrid() {
 	printf("... dumping grid\n");
 
 	int count = 0;
+	int iz = 4;
 	for (int ix = 0; ix < grid_nx; ix++) {
 		for (int iy = 0; iy < grid_ny; iy++) {
-			for (int iz = 0; iz < grid_nz; iz++) {
+			//for (int iz = 0; iz < grid_nz; iz++) {
 				int icell = ix + iy * grid_nx + iz * grid_nx * grid_ny;
-				if (lgridnodes[icell].mass > MASS_CUTOFF) {
+				//if (lgridnodes[icell].mass > MASS_CUTOFF) {
 					count++;
-				}
-			}
+				//}
+			//}
 
 		}
 	}
@@ -1984,12 +1986,12 @@ void PairSmdMpmLin::DumpGrid() {
 
 	for (int ix = 0; ix < grid_nx; ix++) {
 		for (int iy = 0; iy < grid_ny; iy++) {
-			for (int iz = 0; iz < grid_nz; iz++) {
+			//for (int iz = 0; iz < grid_nz; iz++) {
 				int icell = ix + iy * grid_nx + iz * grid_nx * grid_ny;
-				if (lgridnodes[icell].mass > MASS_CUTOFF) {
-					fprintf(f, "X %f %f %f %g\n", ix * cellsize, iy * cellsize, iz * cellsize, lgridnodes[icell].mass);
-				}
-			}
+				//if (lgridnodes[icell].mass > MASS_CUTOFF) {
+					fprintf(f, "X %f %f %f %g\n", ix * cellsize + minx, iy * cellsize + miny, iz * cellsize + minz, lgridnodes[icell].mass);
+				//}
+			//}
 
 		}
 	}
@@ -2001,22 +2003,22 @@ void PairSmdMpmLin::DumpGrid() {
 void PairSmdMpmLin::MirrorCellVelocity(int source, int target, int component) {
 
 	if ((source < 0) || (source >= Ncells)) { // memory access error check
-		printf("source  %d outside allowed range %d to %d\n", source, 0, Ncells);
+		printf("MirrorCellVelocity: source  %d outside allowed range %d to %d\n", source, 0, Ncells);
 		exit(1);
 	}
 	if ((target < 0) || (target >= Ncells)) { // memory access error check
-		printf("target  %d outside allowed range %d to %d\n", target, 0, Ncells);
+		printf("MirrorCellVelocity: target  %d outside allowed range %d to %d\n", target, 0, Ncells);
 		exit(1);
 	}
 
 	lgridnodes[target].v = lgridnodes[source].v;
-	lgridnodes[target].fbody = lgridnodes[source].fbody;
-	lgridnodes[target].f = lgridnodes[source].f;
+	//lgridnodes[target].fbody = lgridnodes[source].fbody;
+	//lgridnodes[target].f = lgridnodes[source].f;
 	lgridnodes[target].mass = lgridnodes[source].mass;
 	lgridnodes[target].imass = lgridnodes[source].imass;
 
 	lgridnodes[target].v(component) *= -1.0;
-	lgridnodes[target].f(component) *= -1.0;
+	//lgridnodes[target].f(component) *= -1.0;
 }
 
 void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction) {
@@ -2064,6 +2066,12 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int sourcecell = gimp_offset + ix + source * grid_nx + iz * grid_nx * grid_ny;
 		int targetcell = gimp_offset + ix + target * grid_nx + iz * grid_nx * grid_ny;
 		//printf("ix=%d, iy=%d, iz=%d, source is %d, target is %d\n", ix, iy, iz, sourcecell, targetcell);
+		MirrorCellVelocity(sourcecell, targetcell, 1);
+
+		source = iy + 2;
+		target = iy - 2;
+		sourcecell = gimp_offset + ix + source * grid_nx + iz * grid_nx * grid_ny;
+		targetcell = gimp_offset + ix + target * grid_nx + iz * grid_nx * grid_ny;
 		MirrorCellVelocity(sourcecell, targetcell, 1);
 
 	} else if (direction == Yminus) {
@@ -2131,7 +2139,7 @@ void PairSmdMpmLin::CheckSymmetryBC() {
 	if (symmetry_plane_y_plus_exists) {
 		//double ssy = icellsize * symmetry_plane_y_plus_location - static_cast<double>(miniy); // shifted position in grid coords
 		double ssy = icellsize * (symmetry_plane_y_plus_location - miny);
-		int ssy_index = static_cast<int>(ssy) + 1;
+		int ssy_index = static_cast<int>(ssy) + 0;
 		//if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
 		for (int ix = 0; ix < grid_nx; ix++) {
 			for (int iz = 0; iz < grid_nz; iz++) {

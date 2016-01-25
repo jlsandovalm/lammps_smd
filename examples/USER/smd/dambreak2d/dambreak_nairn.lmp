@@ -43,7 +43,7 @@ fix             gfix all gravity -9.81 vector 0 1 0 # add gravity
 region          water block 0.6 1 0.0 0.4 EDGE EDGE units box
 lattice         sq ${l0}
 create_atoms    1 region water
-displace_atoms  all move -1.0e-8 1.0e-8 0 units box # move particles so they do not sit on symmetry planes
+displace_atoms  all move -1.0e-8 1.0e-3 0 units box # move particles so they do not sit on symmetry planes
 group           water type 1
 
 ####################################################################################################
@@ -109,10 +109,6 @@ thermo_modify   lost ignore
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
-run             1
-#fix             balance_fix all balance 100 0.9 rcb # load balancing for MPI
-
-run 40000
-#dump_modify     dump_id every 1
+run             1000
 
 #
