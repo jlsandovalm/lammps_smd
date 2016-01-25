@@ -1,0 +1,91 @@
+####################################################################################################
+#
+# MPM example: Taylor impact of a copper bar in 2d
+#
+# unit sytem: GPa / mm / ms
+#
+####################################################################################################
+
+
+####################################################################################################
+# MATERIAL PARAMETERS
+####################################################################################################
+variable 	rho equal 2.7e-6 # initial mass density
+
+####################################################################################################
+# INITIALIZE LAMMPS
+####################################################################################################
+dimension       2
+units		si
+boundary        f f p # simulation box boundaries
+atom_style      smd
+atom_modify	map array
+comm_modify     vel yes
+comm_style      tiled
+neigh_modify    once yes
+newton          off
+
+####################################################################################################
+# CREATE INITIAL GEOMETRY
+####################################################################################################
+variable 	l0 equal 0.25 # lattice spacing for creating particles
+lattice 	sq ${l0}
+region		box block -1 6 -1 21 -0.01 0.01 units box
+create_box 	1 box
+region		particles block 0 5 0 20 EDGE EDGE units box
+create_atoms 	1 region particles
+group           water type 1
+velocity        all set 0 -300 0 units box
+
+####################################################################################################
+# DISCRETIZATION PARAMETERS
+####################################################################################################
+variable 	vol_one equal ${l0}^2 # volume of one particle -- assuming unit thickness
+variable        cr equal ${l0}/2
+set             group all smd_contact_radius ${cr}
+set 		group all volume ${vol_one}
+set             group all smd_mass_density ${rho}
+set 		group all diameter ${cr} # set SPH kernel radius
+variable        mpm_cellsize equal 1*${l0}
+
+####################################################################################################
+# INTERACTION PHYSICS / MATERIAL MODEL
+####################################################################################################
+pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 0.99 2d sym_y_+ -0.5 corotated
+pair_coeff      1 1 
+
+####################################################################################################
+# TIME INTEGRATION
+####################################################################################################
+fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+
+####################################################################################################
+# SPECIFY TRAJECTORY OUTPUT
+####################################################################################################
+variable        dumpFreq equal 10
+compute 	nn all smd/ulsph_num_neighs # number of neighbors for each particle
+compute         contact_radius all smd/contact_radius
+compute         M water smd/shape
+compute         ep water smd/plastic_strain
+
+dump 		dump_id water custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz &
+			c_nn c_contact_radius proc &
+                        c_M[1] c_M[2] c_M[3] c_M[4] c_M[5] c_M[6] c_M[7] c_ep
+dump_modify 	dump_id first yes
+
+####################################################################################################
+# STATUS OUTPUT
+####################################################################################################
+compute         eint all smd/internal_energy
+compute         alleint all reduce sum c_eint
+variable        etot equal pe+ke+c_alleint
+thermo 20
+thermo_style custom step dt f_dtfix pe ke v_etot
+
+####################################################################################################
+# RUN SIMULATION
+####################################################################################################
+#balance          1.1 rcb
+#fix              balance_fix all balance 1000 1.1 rcb 
+#velocity         water set 0 -1 0 units box
+run              2000

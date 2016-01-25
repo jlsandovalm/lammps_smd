@@ -261,12 +261,18 @@ void PairSmdMpmLin::CreateGrid() {
 	//printf("proc %d: ih*maxx=%f, ih*maxy=%f, ih*maxz=%f\n", comm->me, icellsize * maxx, icellsize * maxy, icellsize * maxz);
 	//printf("proc %d: maxix=%d, maxiy=%d, maxiz=%d\n", comm->me, maxix, maxiy, maxiz);
 
-	grid_nx = (maxix - minix) + 4;
-	grid_ny = (maxiy - miniy) + 4;
-	grid_nz = (maxiz - miniz) + 4;
+//	grid_nx = (maxix - minix) + 4;
+//	grid_ny = (maxiy - miniy) + 4;
+//	grid_nz = (maxiz - miniz) + 4;
+
+	grid_nx = static_cast<int>(icellsize * (maxx - minx)) + 5;
+	grid_ny = static_cast<int>(icellsize * (maxy - miny)) + 5;
+	grid_nz = static_cast<int>(icellsize * (maxz - minz)) + 5;
 
 	grid_nz = MAX(grid_nz, 4);
-	gimp_offset = 2 * (1 + grid_nx + grid_nx * grid_ny);
+	gimp_offset = (1 + grid_nx + grid_nx * grid_ny);
+
+
 
 	// allocate grid storage
 
@@ -274,7 +280,7 @@ void PairSmdMpmLin::CreateGrid() {
 //	printf("proc %d: nx=%f, ny=%f, nz=%f\n", comm->me, maxx, maxy, maxz);
 //	printf("proc %d: nx=%d, ny=%d, nz=%d\n", comm->me, grid_nx, grid_ny, grid_nz);
 
-	Ncells = grid_nx * grid_ny * grid_nz;
+	Ncells = grid_nx * grid_ny * grid_nz + 2*gimp_offset;
 	lgridnodes = NULL;
 	lgridnodes = new Gridnode[Ncells];
 
@@ -2015,7 +2021,7 @@ void PairSmdMpmLin::MirrorCellVelocity(int source, int target, int component) {
 
 void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction) {
 
-	printf("icell is %d\n", icell);
+	//printf("icell is %d\n", icell);
 
 	if (direction == Xplus) {
 		lgridnodes[icell].v(0) = 0.0;
@@ -2057,7 +2063,7 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int target = iy - 1;
 		int sourcecell = gimp_offset + ix + source * grid_nx + iz * grid_nx * grid_ny;
 		int targetcell = gimp_offset + ix + target * grid_nx + iz * grid_nx * grid_ny;
-		printf("ix=%d, iy=%d, iz=%d, source is %d, target is %d\n", ix, iy, iz, sourcecell, targetcell);
+		//printf("ix=%d, iy=%d, iz=%d, source is %d, target is %d\n", ix, iy, iz, sourcecell, targetcell);
 		MirrorCellVelocity(sourcecell, targetcell, 1);
 
 	} else if (direction == Yminus) {
@@ -2125,14 +2131,21 @@ void PairSmdMpmLin::CheckSymmetryBC() {
 	if (symmetry_plane_y_plus_exists) {
 		//double ssy = icellsize * symmetry_plane_y_plus_location - static_cast<double>(miniy); // shifted position in grid coords
 		double ssy = icellsize * (symmetry_plane_y_plus_location - miny);
-		int ssy_index = static_cast<int>(ssy) - 1;
+		int ssy_index = static_cast<int>(ssy) + 1;
 		//if ((ssy_index > 1) && (ssy_index < grid_ny - 2)) {
-			for (int ix = 0; ix < grid_nx; ix++) {
-				for (int iz = 0; iz < grid_nz; iz++) {
-					int icell = gimp_offset + ix + ssy_index * grid_nx + iz * grid_nx * grid_ny;
-					ApplySymmetryBC(icell, ix, ssy_index, iz, Yplus);
+		for (int ix = 0; ix < grid_nx; ix++) {
+			for (int iz = 0; iz < grid_nz; iz++) {
+				int icell = gimp_offset + ix + ssy_index * grid_nx + iz * grid_nx * grid_ny;
+
+				if ((icell < 0) || (icell >= Ncells)) { // memory access error check
+					printf("icell  %d outside allowed range %d to %d\n", icell, 0, Ncells);
+					printf("ix=%d, iy=%d, iz=%d\n", ix, ssy_index, iz);
+					exit(1);
 				}
+
+				ApplySymmetryBC(icell, ix, ssy_index, iz, Yplus);
 			}
+		}
 		//}
 	}
 
