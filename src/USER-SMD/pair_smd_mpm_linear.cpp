@@ -1187,15 +1187,13 @@ void PairSmdMpmLin::UpdateStress() {
 				stressTensor[i] = (R[i] * stressTensor[i] * R[i].transpose()).eval();
 			}
 
-		}
-// end if (setflag[itype][itype] == 1)
+		} // end if (setflag[itype][itype] == 1)
 	} // end loop over nlocal
 
-// fallback if no atoms are present:
+	// fallback if no atoms are present:
 	int check_flag = 0;
 	for (itype = 1; itype <= atom->ntypes; itype++) {
 		if (setflag[itype][itype] == 1) {
-
 			p_wave_speed = matDB.gProps[itype].c0;
 			dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
 			check_flag = 1;
