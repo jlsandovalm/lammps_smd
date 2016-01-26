@@ -58,7 +58,7 @@ pair_coeff      1 1
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
-fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+fix             dtfix all smd/adjust_dt 0.25 # dynamically adjust time increment every step
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -81,9 +81,9 @@ dump_modify 	dump_id first yes
 ####################################################################################################
 compute         eint all smd/internal_energy
 compute         alleint all reduce sum c_eint
-variable        etot equal pe+ke+c_alleint
+variable        etot equal pe+ke+c_alleint+c_allq
 thermo 20
-thermo_style custom step dt f_dtfix pe ke c_allq v_etot
+thermo_style custom step dt f_dtfix pe ke c_alleint c_allq v_etot
 
 ####################################################################################################
 # RUN SIMULATION
@@ -91,4 +91,4 @@ thermo_style custom step dt f_dtfix pe ke c_allq v_etot
 #balance          1.1 rcb
 #fix              balance_fix all balance 1000 1.1 rcb 
 #velocity         water set 0 -1 0 units box
-run              1000
+run              2000

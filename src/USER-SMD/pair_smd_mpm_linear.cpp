@@ -733,7 +733,7 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 	int nlocal = atom->nlocal;
 	int i, itype;
 	Matrix3d F, Fincr, eye, U;
-	//bool status;
+	bool status;
 	eye.setIdentity();
 	Affine3d T;
 
@@ -755,12 +755,12 @@ void PairSmdMpmLin::UpdateDeformationGradient() {
 				/*
 				 * perform polar decomposition
 				 */
-				T = F;
-				R[i] = T.rotation();
-//				status = PolDec(F, R[i], U, false); // polar decomposition of the deformation gradient, F = R * U
-//				if (!status) {
-//					error->message(FLERR, "Polar decomposition of deformation gradient failed.\n");
-//				}
+//				T = F;
+//				R[i] = T.rotation();
+				status = PolDec(F, R[i], U, false); // polar decomposition of the deformation gradient, F = R * U
+				if (!status) {
+					error->message(FLERR, "Polar decomposition of deformation gradient failed.\n");
+				}
 
 			} else {
 				R[i].setIdentity();
@@ -971,7 +971,7 @@ void PairSmdMpmLin::GetStress() {
 	int nlocal = atom->nlocal;
 	Matrix3d F, U;
 	Affine3d T;
-	//bool status;
+	bool status;
 
 	for (i = 0; i < nlocal; i++) {
 		itype = type[i];
@@ -995,12 +995,12 @@ void PairSmdMpmLin::GetStress() {
 				/*
 				 * perform polar decomposition
 				 */
-				T = F;
-				R[i] = T.rotation();
-//				status = PolDec(F, R[i], U, false); // polar decomposition of the deformation gradient, F = R * U
-//				if (!status) {
-//					error->message(FLERR, "Polar decomposition of deformation gradient failed.\n");
-//				}
+//				T = F;
+//				R[i] = T.rotation();
+				status = PolDec(F, R[i], U, false); // polar decomposition of the deformation gradient, F = R * U
+				if (!status) {
+					error->message(FLERR, "Polar decomposition of deformation gradient failed.\n");
+				}
 
 				stressTensor[i] = (R[i] * stressTensor[i] * R[i].transpose()).eval();
 
@@ -1064,6 +1064,24 @@ void PairSmdMpmLin::UpdateStress() {
 
 			double mu = 1.0 - J[i];
 			double temperature = 1.0;
+
+			/*
+			 * Retrieve elastic stresses from the beginning of this time step
+			 */
+			oldStress(0, 0) = tlsph_stress[i][0];
+			oldStress(0, 1) = tlsph_stress[i][1];
+			oldStress(0, 2) = tlsph_stress[i][2];
+			oldStress(1, 1) = tlsph_stress[i][3];
+			oldStress(1, 2) = tlsph_stress[i][4];
+			oldStress(2, 2) = tlsph_stress[i][5];
+			oldStress(1, 0) = oldStress(0, 1);
+			oldStress(2, 0) = oldStress(0, 2);
+			oldStress(2, 1) = oldStress(1, 2);
+
+			/*
+			 * compute pressure
+			 */
+
 			matDB.ComputePressure(mu, temperature, itype, newPressure, K_eff);
 			//if (fabs(mu) > 1.0e-3) printf("j=%g, , mu=%g, p=%g\n", J[i], mu, newPressure);
 
@@ -1072,18 +1090,7 @@ void PairSmdMpmLin::UpdateStress() {
 			 */
 			newStressDeviator.setZero();
 			if (matDB.gProps[itype].strengthType != 0) {
-				/*
-				 * Get stress deviator
-				 */
-				oldStress(0, 0) = tlsph_stress[i][0];
-				oldStress(0, 1) = tlsph_stress[i][1];
-				oldStress(0, 2) = tlsph_stress[i][2];
-				oldStress(1, 1) = tlsph_stress[i][3];
-				oldStress(1, 2) = tlsph_stress[i][4];
-				oldStress(2, 2) = tlsph_stress[i][5];
-				oldStress(1, 0) = oldStress(0, 1);
-				oldStress(2, 0) = oldStress(0, 2);
-				oldStress(2, 1) = oldStress(1, 2);
+
 				oldStressDeviator = Deviator(oldStress);
 
 				devStrainIncrement = dt * d_dev;
@@ -1101,10 +1108,10 @@ void PairSmdMpmLin::UpdateStress() {
 			} // end if (strength[itype] != NONE)
 
 			/*
-			 * assemble updated stress Tensor from pressure and deviatoric parts
+			 * assemble updated elastic stress Tensor from pressure and deviatoric parts
 			 */
-			stressIncrement =  -newPressure * eye + newStressDeviator - stressTensor[i];
 			stressTensor[i] = -newPressure * eye + newStressDeviator;
+
 			//cout << "this is the new stress deviator: " << newStressDeviator << endl;
 
 			/*
@@ -1116,6 +1123,13 @@ void PairSmdMpmLin::UpdateStress() {
 			tlsph_stress[i][3] = stressTensor[i](1, 1);
 			tlsph_stress[i][4] = stressTensor[i](1, 2);
 			tlsph_stress[i][5] = stressTensor[i](2, 2);
+
+			/*
+			 * For keeping track of the stored elastic energy in the system,
+			 * we need an intermediate stress tensor, evaluated at half-timestep
+			 * This is simply sigma_old + 1/2 * sigma_increment
+			 */
+			Matrix3d sigma_one_half = oldStress + 0.5 * (stressTensor[i] - oldStress);
 
 			/*
 			 * add viscous stress
@@ -1162,11 +1176,12 @@ void PairSmdMpmLin::UpdateStress() {
 			 * elastic energy rate -- without plastic heating
 			 */
 
-			de[i] += FACTOR * vol[i] * ((stressTensor[i].cwiseProduct(D)).sum() - plastic_work/dt);
+			//de[i] += FACTOR * vol[i] * ((stressTensor[i].cwiseProduct(D)).sum() - plastic_work/dt);
+			de[i] += FACTOR * vol[i] * ((sigma_one_half.cwiseProduct(D)).sum() - plastic_work / dt);
 			heat[i] += vol[i] * plastic_work;
 
 			/*
-			 * finally, rotate stress tensor forward
+			 * finally, rotate stress tensor forward to current configuration
 			 */
 			if (corotated) {
 				stressTensor[i] = (R[i] * stressTensor[i] * R[i].transpose()).eval();

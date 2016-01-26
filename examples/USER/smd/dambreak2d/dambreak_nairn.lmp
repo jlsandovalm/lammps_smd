@@ -25,7 +25,7 @@ comm_style      brick
 # CREATE SIMULATION BOX
 ####################################################################################################
 # create simulation box, a container, and a water column
-variable        l0 equal 0.01# initial particle lattice spacing
+variable        l0 equal 0.005# initial particle lattice spacing
 region          box block -1 2.1 -0.01 2.01 -0.001 0.001 units box
 create_box      1 box
 
@@ -44,6 +44,7 @@ region          water block 0.6 1 0.0 0.4 EDGE EDGE units box
 lattice         sq ${l0}
 create_atoms    1 region water
 #displace_atoms  all move -1.0e-8 1.0e-3 0 units box # move particles so they do not sit on symmetry planes
+displace_atoms  all random 1.0e-8 1.0e-8 0 220578 units box
 group           water type 1
 
 ####################################################################################################
@@ -57,7 +58,7 @@ set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho_water}
 variable        skin equal ${l0} # Verlet list range
 neighbor        ${skin} bin
-variable        mpm_cellsize equal 1*${l0}
+variable        mpm_cellsize equal 2*${l0}
 
 ####################################################################################################
 # INTERACTION PHYSICS / MATERIAL MODEL
@@ -67,8 +68,8 @@ variable        mpm_cellsize equal 1*${l0}
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
 # sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1.01
-pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 sym_y_- 2 sym_x_+ 0 sym_x_- 1.01 &
-                FLIP 0.99 2d
+pair_style      smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 sym_x_+ 0 sym_x_- 1.0 &
+                FLIP 0.99 2d true_deformation
 pair_coeff      1 1 
 
 ####################################################################################################
@@ -90,7 +91,7 @@ compute         damage water smd/damage
 compute         F all smd/tlsph_defgrad
 compute         nn all smd/ulsph_num_neighs
 
-dump            dump_id all custom 10 dump.LAMMPS id type x y &
+dump            dump_id all custom 100 dump.LAMMPS id type x y &
                 fx fy vx vy c_eint c_contact_radius mol &
                 radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_damage &
 		c_F[1] c_F[5] c_F[9] c_F[10] c_nn
@@ -102,13 +103,13 @@ dump_modify     dump_id first yes
 ####################################################################################################
 compute         alleint all reduce sum c_eint
 variable        etot equal pe+ke+c_alleint+f_gfix # total energy of the system
-thermo          10
+thermo          100
 thermo_style    custom step ke pe v_etot c_alleint f_dtfix dt c_vol
 thermo_modify   lost ignore
 
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
-run             1000
+run             40000
 
 #
