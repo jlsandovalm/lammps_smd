@@ -57,7 +57,7 @@ public:
 	void *extract(const char *, int &);
 	void PreCompute();
 	void PreCompute_DensitySummation();
-	double effective_shear_modulus(const Matrix3d d_dev, const Matrix3d deltaStressDev, const double dt, const int itype);
+	double effective_shear_modulus(const Matrix3d d_dev, const Matrix3d deltaStressDev, const int itype);
 
 	void CreateGrid();
 	void UpdateGridVelocities();

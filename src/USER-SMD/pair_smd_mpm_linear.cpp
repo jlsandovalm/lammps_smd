@@ -1037,7 +1037,7 @@ void PairSmdMpmLin::UpdateStress() {
 	double M, p_wave_speed;
 	double rho, effectiveViscosity, d_iso;
 	double plastic_work; // dissipated plastic heat per unit volume
-	Matrix3d deltaStressDev, oldStress;
+	Matrix3d devStressIncrement, oldStress;
 
 	dtCFL = 1.0e22;
 	eye.setIdentity();
@@ -1059,6 +1059,7 @@ void PairSmdMpmLin::UpdateStress() {
 
 			d_iso = D.trace();
 			d_dev = Deviator(D);
+			devStrainIncrement = dt * d_dev;
 
 			rho = rmass[i] / vol[i];
 
@@ -1077,6 +1078,7 @@ void PairSmdMpmLin::UpdateStress() {
 			oldStress(1, 0) = oldStress(0, 1);
 			oldStress(2, 0) = oldStress(0, 2);
 			oldStress(2, 1) = oldStress(1, 2);
+			oldStressDeviator = Deviator(oldStress);
 
 			/*
 			 * compute pressure
@@ -1091,10 +1093,6 @@ void PairSmdMpmLin::UpdateStress() {
 			newStressDeviator.setZero();
 			if (matDB.gProps[itype].strengthType != 0) {
 
-				oldStressDeviator = Deviator(oldStress);
-
-				devStrainIncrement = dt * d_dev;
-
 				matDB.ComputeDevStressIncrement(devStrainIncrement, itype, oldStressDeviator, plasticStrainIncrement,
 						stressIncrement, plastic_work);
 				eff_plastic_strain[i] += plasticStrainIncrement;
@@ -1102,8 +1100,8 @@ void PairSmdMpmLin::UpdateStress() {
 				newStressDeviator = oldStressDeviator + stressIncrement;
 
 				// estimate effective shear modulus for time step stability
-				deltaStressDev = oldStressDeviator - newStressDeviator;
-				G_eff = effective_shear_modulus(d_dev / dt, deltaStressDev, dt, itype);
+				devStressIncrement = oldStressDeviator - newStressDeviator;
+				G_eff = effective_shear_modulus(devStrainIncrement, devStressIncrement, itype);
 
 			} // end if (strength[itype] != NONE)
 
@@ -1140,6 +1138,10 @@ void PairSmdMpmLin::UpdateStress() {
 				Matrix3d viscousStress;
 				matDB.ComputeViscousStress(d_dev, itype, viscousStress);
 
+				// estimate effective shear modulus for time step stability
+				devStressIncrement = oldStressDeviator - viscousStress;
+				G_eff = effective_shear_modulus(devStrainIncrement, devStressIncrement, itype);
+
 				smd_visc_stress[i][0] = viscousStress(0, 0);
 				smd_visc_stress[i][1] = viscousStress(0, 1);
 				smd_visc_stress[i][2] = viscousStress(0, 2);
@@ -1160,13 +1162,14 @@ void PairSmdMpmLin::UpdateStress() {
 				M = K_eff + 4.0 * G_eff / 3.0;
 				p_wave_speed = sqrt(M / rho);
 				dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
+				//printf("effective shear modulus is %f\n", G_eff);
 
 				/*
 				 * stable timestep based on viscosity
 				 */
-				if (matDB.gProps[itype].viscType != 0) {
-					dtCFL = MIN(cellsize * cellsize * rho / (effectiveViscosity), dtCFL);
-				}
+				//if (matDB.gProps[itype].viscType != 0) {
+//					dtCFL = MIN(cellsize * cellsize * rho / (effectiveViscosity), dtCFL);
+				//}
 			} else {
 				p_wave_speed = matDB.gProps[itype].c0;
 				dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
@@ -1689,24 +1692,23 @@ void *PairSmdMpmLin::extract(const char *str, int &i) {
  compute effective shear modulus by dividing rate of deviatoric stress with rate of shear deformation
  ------------------------------------------------------------------------- */
 
-double PairSmdMpmLin::effective_shear_modulus(const Matrix3d d_dev, const Matrix3d deltaStressDev, const double dt,
+double PairSmdMpmLin::effective_shear_modulus(const Matrix3d devStrainIncrement, const Matrix3d devStressIncrement,
 		const int itype) {
 	double G_eff; // effective shear modulus, see Pronto 2d eq. 3.4.7
-	double deltaStressDevSum, shearRateSq, strain_increment;
+	double devStressSum, devStrainSum;
 
 	if (domain->dimension == 3) {
-		deltaStressDevSum = deltaStressDev(0, 1) * deltaStressDev(0, 1) + deltaStressDev(0, 2) * deltaStressDev(0, 2)
-				+ deltaStressDev(1, 2) * deltaStressDev(1, 2);
-		shearRateSq = d_dev(0, 1) * d_dev(0, 1) + d_dev(0, 2) * d_dev(0, 2) + d_dev(1, 2) * d_dev(1, 2);
+		devStressSum = devStressIncrement(0, 1) * devStressIncrement(0, 1) + devStressIncrement(0, 2) * devStressIncrement(0, 2)
+				+ devStressIncrement(1, 2) * devStressIncrement(1, 2);
+		devStrainSum = devStrainIncrement(0, 1) * devStrainIncrement(0, 1) + devStrainIncrement(0, 2) * devStrainIncrement(0, 2)
+				+ devStrainIncrement(1, 2) * devStrainIncrement(1, 2);
 	} else {
-		deltaStressDevSum = deltaStressDev(0, 1) * deltaStressDev(0, 1);
-		shearRateSq = d_dev(0, 1) * d_dev(0, 1);
+		devStressSum = devStressIncrement(0, 1) * devStressIncrement(0, 1);
+		devStrainSum = devStrainIncrement(0, 1) * devStrainIncrement(0, 1);
 	}
 
-	strain_increment = dt * dt * shearRateSq;
-
-	if (strain_increment > 1.0e-12) {
-		G_eff = 0.5 * sqrt(deltaStressDevSum / strain_increment);
+	if (devStrainSum > 1.0e-12) {
+		G_eff = 0.5 * sqrt(devStressSum / devStrainSum);
 	} else {
 		if (matDB.gProps[itype].strengthType != 0) {
 			G_eff = matDB.gProps[itype].G0;
