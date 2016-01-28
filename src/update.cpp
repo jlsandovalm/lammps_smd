@@ -38,6 +38,8 @@ Update::Update(LAMMPS *lmp) : Pointers(lmp)
 {
   char *str;
 
+  run_duration = 0.0;
+  elapsed_time_in_run = 0.0;
   ntimestep = 0;
   atime = 0.0;
   atimestep = 0;

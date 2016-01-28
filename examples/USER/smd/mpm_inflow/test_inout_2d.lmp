@@ -10,17 +10,7 @@
 # MATERIAL PARAMETERS
 ####################################################################################################
 variable        rho equal 1000 # mass density water
-variable        c0 equal 10.0 # speed of sound for water
-variable        K equal  ${c0}*${c0}*${rho} # Young's modulus for solid objects
-variable        nu equal 0.3 # Poisson ratio for solid objects
-variable        G equal 3*${K}*(1-2*${nu})/(2*(1+${nu}))
-variable        sigma_yield equal 1.1*${G} # plastic yield stress for solid objects
-variable        hardening_parameter equal 0 # plastic hardening parameter for solid objects
-variable        contact_stiffness equal 10*${K} # contact force amplitude
-variable        q1 equal 0.06 # artificial viscosity
-variable        q2 equal 0.0 # artificial viscosity
-variable        Hg equal 10 # Hourglass control coefficient for solid objects
-variable        Cp equal 1.0 # heat capacity -- not used here
+variable        contact_stiffness equal 1.0e5
 variable        contact_scale equal 2.0 # scale factor to increase contact gap between bodies
 variable        temp_left equal 200
 variable        temp_right equal 100
@@ -48,7 +38,7 @@ region          box block 0 80 -0.01 13.01 -0.1 0.1 units box
 create_box      2 box
 region          inflow block 0.9 1.8 1 12 EDGE EDGE units box
 region          constvel block EDGE 10 EDGE EDGE EDGE EDGE units box
-region          outflow block 78.1 EDGE EDGE EDGE EDGE EDGE units box
+region          outflow block 40 EDGE EDGE EDGE EDGE EDGE units box
 
 ####################################################################################################
 # CREATE PARTICLES
@@ -61,25 +51,20 @@ create_atoms    1 single 10 8.5 0
 ####################################################################################################
 # DISCRETIZATION PARAMETERS
 ####################################################################################################
-variable        dtCFL equal 0.1*sqrt(${K}/${rho})
-variable        h equal ${l0} # SPH kernel diameter
-variable        vol_one equal ${l0}^3 # initial particle volume for 2d simulation
+variable        vol_one equal ${l0}^2 # initial particle volume for 2d simulation
 variable        contact_radius equal 2
 set             group all diameter 4
 set             group all smd_contact_radius ${contact_radius}
 set             group all volume  ${vol_one}
 set             group all smd_mass_density ${rho}
-#set             group all mol 1000
 
-variable        skin equal 2.5 #0.1*${h} # Verlet list range
+variable        skin equal 0.1*${l0} # Verlet list range
 neighbor        ${skin} bin
 variable        mpm_cellsize equal 1.0*${l0}
 
 ####################################################################################################
 # DEFINE BOUNDARY CONDITIONS
 ####################################################################################################
-#fix             walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE units box
-#fix             gfix all gravity -9.81e-3 vector 0 0 1 # add gravity
 fix 		inflow all smd/inflow rho 1000 radius ${l0} freq 20 region inflow velocity 0.05 &
                 direction x type 1 contact_radius 0.5
 fix             outflow all smd/outflow 10 outflow
@@ -88,8 +73,6 @@ fix             outflow all smd/outflow 10 outflow
 # SET TEMPERATURE
 ####################################################################################################
 variable        mass_one equal ${rho}*${vol_one}
-variable 	heat_left equal ${temp_left}*${mass_one}*${Cp}
-variable 	heat_right equal ${temp_right}*${mass_one}*${Cp}
 
 ####################################################################################################
 # INTERACTION PHYSICS / MATERIAL MODEL
@@ -98,19 +81,15 @@ variable 	heat_right equal ${temp_right}*${mass_one}*${Cp}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      hybrid/overlay smd/hertz 1.0 smd/mpm ${mpm_cellsize} sym_y_+ -0.01 sym_y_- 13.01
-pair_coeff      1 1 smd/mpm *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
-                              *EOS_TAIT 2 &
-			      *HEAT_CONDUCTION 1.0e4 &
-	                      *END
-pair_coeff      1 2 smd/hertz ${K}
+pair_style      hybrid/overlay smd/hertz 1.0 smd/mpm_linear ${mpm_cellsize} sym_y_+ 0 sym_y_- 13 FLIP 0.99 2d exclude_region constvel 0.05 0 0
+pair_coeff      1 1 smd/mpm_linear
+pair_coeff      1 2 smd/hertz ${contact_stiffness}
 pair_coeff      2 2 none
 
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
-fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-fix             integration_fix_water all smd/integrate_mpm FLIP 0.999 exclude_region constvel
+fix             dtfix all smd/adjust_dt 0.127 1000.0 # dynamically adjust time increment every step
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -143,14 +122,5 @@ thermo_modify   lost warn
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
-
-
-
-velocity  all set 0.05 0 0 units box
-#fix 2 all balance 1000 1.1 rcb 
-#fix 2 all balance 1000 1.05 shift x 10 1.05
-
-run 300000
-
-#unfix  		inflow
-#run             25000
+run 1000000
+run 1000000

@@ -1026,7 +1026,7 @@ void PairSmdMpmLin::UpdateStress() {
 	int *type = atom->type;
 	int i, itype;
 	int nlocal = atom->nlocal;
-	Matrix3d E, D, Ddev, W, V, sigma_diag;
+	Matrix3d E, strainIncrement, Ddev, W, V, sigma_diag;
 	Matrix3d eye, stressRate, StressRateDevJaumann;
 	Matrix3d stressIncrement, d_dev, devStrainIncrement, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
 	double plasticStrainIncrement;
@@ -1035,7 +1035,7 @@ void PairSmdMpmLin::UpdateStress() {
 	double G_eff = 0.0; // effective shear modulus
 	double K_eff; // effective bulk modulus
 	double M, p_wave_speed;
-	double rho, effectiveViscosity, d_iso;
+	double rho, effectiveViscosity; //, d_iso;
 	double plastic_work; // dissipated plastic heat per unit volume
 	Matrix3d devStressIncrement, oldStress;
 
@@ -1052,17 +1052,13 @@ void PairSmdMpmLin::UpdateStress() {
 			effectiveViscosity = 0.0;
 			K_eff = 0.0;
 			G_eff = 0.0;
-			D = 0.5 * (L[i] + L[i].transpose());
+			strainIncrement = dt * 0.5 * (L[i] + L[i].transpose());
 			if (corotated) {
-				D = (R[i].transpose() * D * R[i]).eval(); // remove rotation
+				strainIncrement = (R[i].transpose() * strainIncrement * R[i]).eval(); // remove rotation
 			}
 
-			d_iso = D.trace();
-			d_dev = Deviator(D);
-			devStrainIncrement = dt * d_dev;
-
+			devStrainIncrement = Deviator(strainIncrement);
 			rho = rmass[i] / vol[i];
-
 			double mu = 1.0 - J[i];
 			double temperature = 1.0;
 
@@ -1180,7 +1176,7 @@ void PairSmdMpmLin::UpdateStress() {
 			 */
 
 			//de[i] += FACTOR * vol[i] * ((stressTensor[i].cwiseProduct(D)).sum() - plastic_work/dt);
-			de[i] += FACTOR * vol[i] * ((sigma_one_half.cwiseProduct(D)).sum() - plastic_work / dt);
+			de[i] += FACTOR * vol[i] * ((sigma_one_half.cwiseProduct(strainIncrement)).sum() - plastic_work);
 			heat[i] += vol[i] * plastic_work;
 
 			/*
@@ -1885,7 +1881,7 @@ void PairSmdMpmLin::AdvanceParticlesEnergy() {
 	for (i = 0; i < nlocal; i++) {
 		int itype = type[i];
 		if (setflag[itype][itype]) {
-			e[i] += update->dt * de[i];
+			e[i] += de[i];
 		}
 	}
 

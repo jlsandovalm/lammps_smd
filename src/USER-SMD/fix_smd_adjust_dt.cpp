@@ -39,7 +39,7 @@
 #include "dump.h"
 #include "comm.h"
 #include "error.h"
-
+#include "run.h"
 using namespace LAMMPS_NS;
 using namespace FixConst;
 
@@ -50,7 +50,7 @@ using namespace FixConst;
 FixSMDTlsphDtReset::FixSMDTlsphDtReset(LAMMPS *lmp, int narg, char **arg) :
 		Fix(lmp, narg, arg) {
 	if (narg != 4)
-		error->all(FLERR, "Illegal fix smd/adjust_dt command");
+		error->all(FLERR, "Illegal fix smd/adjust_dt command. Synatx: fix _name_ smd/adjust_dt all CFL_factor");
 
 	// set time_depend, else elapsed time accumulation can be messed up
 
@@ -63,7 +63,7 @@ FixSMDTlsphDtReset::FixSMDTlsphDtReset(LAMMPS *lmp, int narg, char **arg) :
 	extvector = 0;
 	restart_global = 1; // this fix stores global (i.e., not per-atom) info: elaspsed time
 
-	safety_factor = atof(arg[3]);
+	safety_factor = force->numeric(FLERR, arg[3]);
 
 	// initializations
 	t_elapsed = 0.0;
@@ -96,7 +96,7 @@ void FixSMDTlsphDtReset::initial_integrate(int vflag) {
 
 	//printf("in adjust_dt: dt = %20.10f\n", update->dt);
 
-	t_elapsed += update->dt;
+	//t_elapsed += update->dt;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -115,8 +115,7 @@ void FixSMDTlsphDtReset::end_of_step() {
 	double *dt_HERTZ = (double *) force->pair->extract("smd/hertz/stable_time_increment_ptr", itmp);
 	double *dt_PERI_IPMB = (double *) force->pair->extract("smd/peri_ipmb/stable_time_increment_ptr", itmp);
 
-	if ((dtCFL_TLSPH == NULL) && (dtCFL_ULSPH == NULL) && (dt_TRI == NULL) && (dt_HERTZ == NULL)
-			&& (dt_PERI_IPMB == NULL)) {
+	if ((dtCFL_TLSPH == NULL) && (dtCFL_ULSPH == NULL) && (dt_TRI == NULL) && (dt_HERTZ == NULL) && (dt_PERI_IPMB == NULL)) {
 		error->all(FLERR, "fix smd/adjust_dt failed to access a valid dtCFL");
 	}
 
@@ -139,12 +138,6 @@ void FixSMDTlsphDtReset::end_of_step() {
 	if (dt_PERI_IPMB != NULL) {
 		dtmin = MIN(dtmin, *dt_PERI_IPMB);
 	}
-
-//	if (dtmin > 1.0e18) {
-//		printf("dtmin = %fcannot set time step, aborting\n");
-//		update->atime = t_elapsed;
-//		return;
-//	}
 
 	double **f = atom->f;
 	double *rmass = atom->rmass;
@@ -175,13 +168,23 @@ void FixSMDTlsphDtReset::end_of_step() {
 
 	//printf("dtmin is now: %f, dt is now%f\n", dtmin, dt);
 
+	if (update->run_duration > 0.0) {
+		if (update->elapsed_time_in_run + dt >= update->run_duration) {
+			dt = update->run_duration - update->elapsed_time_in_run;
+			dt = MAX(dt, 1.0e-16);
+		}
+	}
 
 	update->dt = dt;
+	update->elapsed_time_in_run += update->dt;
+	t_elapsed += dt;
 	if (force->pair)
 		force->pair->reset_dt();
 	for (int i = 0; i < modify->nfix; i++)
 		modify->fix[i]->reset_dt();
 	update->atime = t_elapsed;
+	update->atimestep = update->ntimestep;
+
 }
 
 /* ---------------------------------------------------------------------- */

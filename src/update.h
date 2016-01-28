@@ -20,6 +20,8 @@ namespace LAMMPS_NS {
 
 class Update : protected Pointers {
  public:
+  double run_duration;            // GCG stop simulation if elapsed simulation time exceeds this.
+  double elapsed_time_in_run;	  // elapsed simulation time for a single run;
   double dt;                      // timestep
   double etol,ftol;               // minimizer tolerances on energy/force
   bigint ntimestep;               // current step (dynamics or min iterations)
