@@ -1138,7 +1138,7 @@ void PairSmdMpmLin::UpdateStress() {
 
 				// estimate effective shear modulus for time step stability
 				devStressIncrement = oldStressDeviator - viscousStress;
-				G_eff = 0.5* effective_shear_modulus(devStrainIncrement, devStressIncrement, itype);
+				G_eff = 0.5 * effective_shear_modulus(devStrainIncrement, devStressIncrement, itype);
 
 				smd_visc_stress[i][0] = viscousStress(0, 0);
 				smd_visc_stress[i][1] = viscousStress(0, 1);
@@ -1572,11 +1572,12 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 	double **f = atom->f;
 	double **v = atom->v;
 	double **x = atom->x;
-	int i, j, m;
+	int *type = atom->type;
+	int i, j, m, jtype;
 
-	double dx = 0 * pbc[0] * domain->xprd;
-	double dy = 0 * pbc[1] * domain->yprd;
-	double dz = 0 * pbc[2] * domain->zprd;
+	double dx = 1 * pbc[0] * domain->xprd;
+	double dy = 1 * pbc[1] * domain->yprd;
+	double dz = 1 * pbc[2] * domain->zprd;
 	//printf("dx=%f, dy=%f, dz=%f\n", dx, dy, dz);
 //printf("packing comm\n");
 
@@ -1602,13 +1603,23 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 		// second comm in MUSL: need updated velocities and positions on ghosts
 		for (i = 0; i < n; i++) {
 			j = list[i];
+
+			jtype = type[j];
+
 			buf[m++] = v[j][0];
 			buf[m++] = v[j][1];
 			buf[m++] = v[j][2];
 
-			buf[m++] = x[j][0] + dx;
-			buf[m++] = x[j][1] + dy;
-			buf[m++] = x[j][2] + dz;
+			//problem: this comm runs over all particles, not just that type for which this pair style is active
+			if (setflag[jtype][jtype]) {
+				buf[m++] = x[j][0] + dx;
+				buf[m++] = x[j][1] + dy;
+				buf[m++] = x[j][2] + dz;
+			} else {
+				buf[m++] = x[j][0];
+				buf[m++] = x[j][1];
+				buf[m++] = x[j][2];
+			}
 
 			buf[m++] = particleVelocities[j](0);
 			buf[m++] = particleVelocities[j](1);

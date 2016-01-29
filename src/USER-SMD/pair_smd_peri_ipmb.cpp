@@ -49,7 +49,7 @@
 using namespace LAMMPS_NS;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
-#define VFRAC_SCALE true
+#define VFRAC_SCALE false
 
 #if defined(__clang__) || defined (__GNUC__)
 # define ATTRIBUTE_NO_SANITIZE_ADDRESS __attribute__((no_sanitize_address))
@@ -251,6 +251,7 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 	double lc = domain->lattice->xlattice;
 	double half_lc = 0.5 * lc;
 	double vfrac_scale = 1.0;
+	int periodic = (domain->xperiodic || domain->yperiodic || domain->zperiodic);
 
 	for (i = 0; i < nlocal; i++) {
 
@@ -284,6 +285,8 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 			delx = xtmp - x[j][0];
 			dely = ytmp - x[j][1];
 			delz = ztmp - x[j][2];
+			if (periodic)
+				domain->minimum_image(delx, dely, delz);
 
 			rsq = delx * delx + dely * dely + delz * delz;
 			jtype = type[j];

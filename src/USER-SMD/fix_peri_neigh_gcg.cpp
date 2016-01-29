@@ -33,7 +33,7 @@
 using namespace LAMMPS_NS;
 using namespace FixConst;
 #define DELTA 16384
-#define VFRAC_SCALE true
+#define VFRAC_SCALE false
 
 /* ---------------------------------------------------------------------- */
 
