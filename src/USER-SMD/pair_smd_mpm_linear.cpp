@@ -1026,9 +1026,9 @@ void PairSmdMpmLin::UpdateStress() {
 	int *type = atom->type;
 	int i, itype;
 	int nlocal = atom->nlocal;
-	Matrix3d E, strainIncrement, Ddev, W, V, sigma_diag;
-	Matrix3d eye, stressRate, StressRateDevJaumann;
-	Matrix3d stressIncrement, d_dev, devStrainIncrement, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
+	Matrix3d E, strainIncrement, W, V, sigma_diag, strainRate, devStrainRate;
+	Matrix3d eye, stressRate;
+	Matrix3d stressIncrement, devStrainIncrement, sigmaFinal_dev, stressRateDev, oldStressDeviator, newStressDeviator;
 	double plasticStrainIncrement;
 	double dt = FACTOR * update->dt;
 	double newPressure;
@@ -1052,12 +1052,14 @@ void PairSmdMpmLin::UpdateStress() {
 			effectiveViscosity = 0.0;
 			K_eff = 0.0;
 			G_eff = 0.0;
-			strainIncrement = dt * 0.5 * (L[i] + L[i].transpose());
+			strainRate = 0.5 * (L[i] + L[i].transpose());
+			strainIncrement = dt * strainRate;
 			if (corotated) {
 				strainIncrement = (R[i].transpose() * strainIncrement * R[i]).eval(); // remove rotation
 			}
 
-			devStrainIncrement = Deviator(strainIncrement);
+			devStrainRate = Deviator(strainRate);
+			devStrainIncrement = dt * devStrainRate;
 			rho = rmass[i] / vol[i];
 			double mu = 1.0 - J[i];
 			double temperature = 1.0;
@@ -1132,11 +1134,11 @@ void PairSmdMpmLin::UpdateStress() {
 			if (matDB.gProps[itype].viscType != 0) {
 
 				Matrix3d viscousStress;
-				matDB.ComputeViscousStress(d_dev, itype, viscousStress);
+				matDB.ComputeViscousStress(devStrainRate, itype, viscousStress);
 
 				// estimate effective shear modulus for time step stability
 				devStressIncrement = oldStressDeviator - viscousStress;
-				G_eff = effective_shear_modulus(devStrainIncrement, devStressIncrement, itype);
+				G_eff = 0.5* effective_shear_modulus(devStrainIncrement, devStressIncrement, itype);
 
 				smd_visc_stress[i][0] = viscousStress(0, 0);
 				smd_visc_stress[i][1] = viscousStress(0, 1);
@@ -1144,6 +1146,11 @@ void PairSmdMpmLin::UpdateStress() {
 				smd_visc_stress[i][3] = viscousStress(1, 1);
 				smd_visc_stress[i][4] = viscousStress(1, 2);
 				smd_visc_stress[i][5] = viscousStress(2, 2);
+
+//				if (viscousStress.norm() > 1.0e-6) {
+//					cout << "visc stress: " << endl << viscousStress << endl;
+//					cout << "visc stress: " << endl << viscousStress << endl;
+//				}
 
 				stressTensor[i] += viscousStress;
 
@@ -1567,6 +1574,10 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 	double **x = atom->x;
 	int i, j, m;
 
+	double dx = 0 * pbc[0] * domain->xprd;
+	double dy = 0 * pbc[1] * domain->yprd;
+	double dz = 0 * pbc[2] * domain->zprd;
+	//printf("dx=%f, dy=%f, dz=%f\n", dx, dy, dz);
 //printf("packing comm\n");
 
 	m = 0;
@@ -1595,9 +1606,9 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 			buf[m++] = v[j][1];
 			buf[m++] = v[j][2];
 
-			buf[m++] = x[j][0];
-			buf[m++] = x[j][1];
-			buf[m++] = x[j][2];
+			buf[m++] = x[j][0] + dx;
+			buf[m++] = x[j][1] + dy;
+			buf[m++] = x[j][2] + dz;
 
 			buf[m++] = particleVelocities[j](0);
 			buf[m++] = particleVelocities[j](1);
