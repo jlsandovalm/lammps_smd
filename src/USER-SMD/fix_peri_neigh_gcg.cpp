@@ -127,6 +127,7 @@ void FixPeriNeighGCG::setup(int vflag) {
 	double xtmp, ytmp, ztmp, delx, dely, delz, rsq, cutsq;
 	int *ilist, *jlist, *numneigh;
 	int **firstneigh;
+	int periodic = (domain->xperiodic || domain->yperiodic || domain->zperiodic);
 
 	double **x = atom->x;
 	double *vfrac = atom->vfrac;
@@ -175,6 +176,8 @@ void FixPeriNeighGCG::setup(int vflag) {
 				delx = xtmp - x[j][0];
 				dely = ytmp - x[j][1];
 				delz = ztmp - x[j][2];
+				if (periodic)
+					domain->minimum_image(delx, dely, delz);
 				rsq = delx * delx + dely * dely + delz * delz;
 				jtype = type[j];
 
@@ -242,6 +245,8 @@ void FixPeriNeighGCG::setup(int vflag) {
 				delx = xtmp - x[j][0];
 				dely = ytmp - x[j][1];
 				delz = ztmp - x[j][2];
+				if (periodic)
+					domain->minimum_image(delx, dely, delz);
 				rsq = delx * delx + dely * dely + delz * delz;
 				jtype = type[j];
 

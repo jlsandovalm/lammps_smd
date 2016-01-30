@@ -1093,6 +1093,9 @@ void PairSmdMpmLin::UpdateStress() {
 
 				matDB.ComputeDevStressIncrement(devStrainIncrement, itype, oldStressDeviator, plasticStrainIncrement,
 						stressIncrement, plastic_work);
+				if (plastic_work < 0.0) {
+					printf("plastic work = %f\n", plastic_work);
+				}
 				eff_plastic_strain[i] += plasticStrainIncrement;
 
 				newStressDeviator = oldStressDeviator + stressIncrement;
@@ -1858,8 +1861,6 @@ void PairSmdMpmLin::AdvanceParticles() {
 //					}
 //				}
 
-				//heat[i] = PIC_contribution * particleHeat[i] + FLIP_contribution * (heat[i] + dtv * particleHeatRate[i]);
-				heat[i] += dtv * particleHeatRate[i];
 
 			} else if (mode == PRESCRIBED_VELOCITY) {
 
@@ -1885,6 +1886,8 @@ void PairSmdMpmLin::AdvanceParticles() {
 					x[i][2] += dtv * v[i][2];
 
 			}
+
+			heat[i] += dtv * particleHeatRate[i]; // heat flow is always time integrated
 
 		}
 
@@ -1913,7 +1916,7 @@ void PairSmdMpmLin::ComputeHeatGradientOnGrid() {
 
 // todo: introduce heat conduction coeff
 
-	double factor = icellsize * icellsize;
+	double factor = 0.1 * icellsize * icellsize;
 	double totalflux = 0.0;
 	double dxx, dyy, dzz;
 	for (int ix = 1; ix < grid_nx - 1; ix++) {
@@ -1926,58 +1929,37 @@ void PairSmdMpmLin::ComputeHeatGradientOnGrid() {
 
 					dxx = dyy = dzz = 0.0;
 
-					// derivative in x direction
+					// 2nd derivative in x direction
 					int plus_cell = ix + 1 + iy * grid_nx + iz * grid_nx * grid_ny;
 					int minus_cell = ix - 1 + iy * grid_nx + iz * grid_nx * grid_ny;
 
 					if ((lgridnodes[plus_cell].mass > MASS_CUTOFF) && (lgridnodes[minus_cell].mass > MASS_CUTOFF)) {
 						// can do central 2nd deriv
-						dxx = factor * (lgridnodes[plus_cell].heat - 2.0 * lgridnodes[icell].heat + lgridnodes[minus_cell].heat);
+						dxx = lgridnodes[plus_cell].heat - 2.0 * lgridnodes[icell].heat + lgridnodes[minus_cell].heat;
 					}
 
-//					if (fabs(dxx) > 1.0e-5) {
-//						printf("heat distribution: %f %f %f\n", lgridnodes[plus_cell].heat, lgridnodes[icell].heat,
-//								lgridnodes[minus_cell].heat);
-//						printf("xx 2nd deriv. : %f\n", dxx);
-//					}
-
-					// derivative in y direction
+					// 2nd derivative in y direction
 					plus_cell = ix + (iy + 1) * grid_nx + iz * grid_nx * grid_ny;
 					minus_cell = ix + (iy - 1) * grid_nx + iz * grid_nx * grid_ny;
 					if ((lgridnodes[plus_cell].mass > MASS_CUTOFF) && (lgridnodes[minus_cell].mass > MASS_CUTOFF)) {
 						// can do central 2nd deriv
-						dyy = factor * (lgridnodes[plus_cell].heat - 2.0 * lgridnodes[icell].heat + lgridnodes[minus_cell].heat);
+						dyy = lgridnodes[plus_cell].heat - 2.0 * lgridnodes[icell].heat + lgridnodes[minus_cell].heat;
 					}
 
-//					dyy = factor * (lgridnodes[plus_cell].heat - 2.0 * lgridnodes[icell].heat + lgridnodes[minus_cell].heat);
-
-//					if (fabs(dyy) > 1.0e-5) {
-//						printf("yy heat distribution: %f %f %f\n", lgridnodes[plus_cell].heat, lgridnodes[icell].heat,
-//								lgridnodes[minus_cell].heat);
-//						printf("yy 2nd deriv. : %f\n", dyy);
-//					}
-
-//					// derivative in z direction
+					// 2nd derivative in z direction
 					if (flag3d) {
 						plus_cell = ix + iy * grid_nx + (iz + 1) * grid_nx * grid_ny;
 						minus_cell = ix + iy * grid_nx + (iz - 1) * grid_nx * grid_ny;
 
 						if ((lgridnodes[plus_cell].mass > MASS_CUTOFF) && (lgridnodes[minus_cell].mass > MASS_CUTOFF)) {
 							// can do central 2nd deriv
-							dzz = factor
-									* (lgridnodes[plus_cell].heat - 2.0 * lgridnodes[icell].heat + lgridnodes[minus_cell].heat);
+							dzz = lgridnodes[plus_cell].heat - 2.0 * lgridnodes[icell].heat + lgridnodes[minus_cell].heat;
 						}
 					}
-//
-//					if (fabs(dzz) > 1.0e-5) {
-//						printf("zz heat distribution: %f %f %f\n", lgridnodes[plus_cell].heat, lgridnodes[icell].heat,
-//								lgridnodes[minus_cell].heat);
-//						printf("zz 2nd deriv. : %f\n", dzz);
-//					}
 
 					totalflux += dxx + dyy + dzz;
 
-					lgridnodes[icell].dheat_dt = dxx + dyy + dzz;
+					lgridnodes[icell].dheat_dt = factor * (dxx + dyy + dzz);
 				}
 			}
 		}

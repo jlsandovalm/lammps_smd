@@ -26,7 +26,7 @@ variable        contact_scale equal 2.0 # scale factor to increase contact gap b
 ####################################################################################################
 units		si
 dimension       2
-boundary        f f p
+boundary        p p p
 atom_style      smd
 neigh_modify    every 5 delay 0 check yes
 comm_modify     vel yes cutoff 0.1
@@ -84,7 +84,7 @@ variable        mpm_cellsize equal 1.0*${l0}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1
+pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1 2d
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
                               *VISCOSITY_NEWTON 0.0 &
