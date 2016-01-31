@@ -24,7 +24,7 @@ public:
 	void ComputeDevStressIncrement(const Eigen::Matrix3d d_dev, const int itype, const Eigen::Matrix3d oldStressDeviator,
 			double &plasticStrainIncrement, Eigen::Matrix3d &stressIncrement, double &plastic_work);
 	void ComputeViscousStress(const Eigen::Matrix3d d_dev, const int itype, Eigen::Matrix3d &viscousStress);
-	void PrintData();
+	void PrintData(const int itype);
 	void DetermineReferenceSoundspeed();
 
 	// --------

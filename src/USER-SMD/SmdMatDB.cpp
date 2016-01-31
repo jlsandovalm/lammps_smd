@@ -31,19 +31,18 @@ SmdMatDB::~SmdMatDB() {
 }
 
 int SmdMatDB::ReadMaterials(const int ntypes__) {
-	printf("DOING SOMETHING ********************************************\n");
 	ntypes = ntypes__;
 
 	CSimpleIni ini;
 	ini.Reset();
 
 	// allocate lookup tables for number of lammps types
-	printf("allocating storage for %d particle types\n", ntypes);
+	//printf("MatDB: allocating storage for %d particle types\n", ntypes);
 	gProps = new gProp[ntypes + 1];
 
 	// load from a string
 	std::string strData = "materials.ini";
-	cout << "reading material database from file: " << strData << endl;
+	//cout << "reading material database from file: " << strData << endl;
 	int rc = ini.LoadFile(strData.c_str());
 	if (rc < 0) {
 		return -1;
@@ -113,21 +112,21 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 
 	// read EOS
 	string eosName = ini.GetValue(sectionName.c_str(), "EOS", STRING_NOT_FOUND);
-	cout << "EOS is " << eosName << endl;
+	//cout << "EOS is " << eosName << endl;
 	if (eosName != "NONE") {
 		retVal = ini.GetSectionSize(eosName.c_str());
 		if (retVal < 0) {
 			printf("EOS could not be found\n");
 			return -1;
 		} else {
-			printf("eos could be found\n");
+			//printf("eos could be found\n");
 			gProps[itype].eosName = eosName;
 		}
 	}
 
 	// read STRENGTH
 	string strengthName = ini.GetValue(sectionName.c_str(), "STRENGTH", STRING_NOT_FOUND);
-	cout << "STRENGTH is " << strengthName << endl;
+	//cout << "STRENGTH is " << strengthName << endl;
 
 	if (strengthName != "NONE") {
 		retVal = ini.GetSectionSize(strengthName.c_str());
@@ -135,14 +134,14 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 			printf("Strength could not be found\n");
 			return -1;
 		} else {
-			printf("Strength could be found\n");
+			//printf("Strength could be found\n");
 			gProps[itype].strengthName = strengthName;
 		}
 	}
 
 	// read Viscosity Model
 	string viscName = ini.GetValue(sectionName.c_str(), "VISCOSITY", STRING_NOT_FOUND);
-	cout << "VISCOSITY model is " << viscName << endl;
+	//cout << "VISCOSITY model is " << viscName << endl;
 
 	if (viscName != "NONE") {
 		retVal = ini.GetSectionSize(viscName.c_str());
@@ -151,7 +150,7 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 			printf("Viscosity model %s could not be found in ini file\n", viscName.c_str());
 			return -1;
 		} else {
-			printf("Viscosity could be found\n");
+			//printf("Viscosity could be found\n");
 			gProps[itype].viscName = viscName;
 		}
 	}
@@ -347,7 +346,7 @@ int SmdMatDB::ReadViscosities(CSimpleIni &ini, const int itype) {
 
 	// we already know that the section exists
 	string section = gProps[itype].viscName;
-	printf("+++ visc model %s\n", section.c_str());
+	//printf("+++ visc model %s\n", section.c_str());
 
 	if (section != "NONE") {
 		int ViscId = ini.GetLongValue(section.c_str(), "ViscId", LONG_NOT_FOUND);
@@ -377,7 +376,7 @@ int SmdMatDB::ReadViscNewton(CSimpleIni &ini, const int itype) {
 		if (viscNewton_vec[i].name == section) {
 			gProps[itype].viscType = 1;
 			gProps[itype].viscTypeIdx = i;
-			printf("returning because viscosity model already exists\n");
+			//printf("returning because viscosity model already exists\n");
 			return 0;
 		}
 	}
@@ -387,23 +386,23 @@ int SmdMatDB::ReadViscNewton(CSimpleIni &ini, const int itype) {
 		printf("could not read eta for Newton viscosity model [%s]\n", section.c_str());
 		return -1;
 	} else {
-		printf("**** ETA = %f\n", eta);
+		//printf("**** ETA = %f\n", eta);
 	}
 
 	viscNewton_vec.push_back(ViscosityNewton(eta, section));
-	printf("Assigning visc type %d to particle type %d\n", gProps[itype].viscType, itype);
+	//printf("Assigning visc type %d to particle type %d\n", gProps[itype].viscType, itype);
 	gProps[itype].viscType = 1;
 	gProps[itype].viscTypeIdx = viscNewton_vec.size() - 1;
 
 	return 0;
 }
 
-void SmdMatDB::PrintData() {
+void SmdMatDB::PrintData(const int itype) {
 
-	printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
-	printf("... SMD / MPM CONSTITUTIVE MODELS\n\n");
+//	printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
+//	printf("... SMD / MPM CONSTITUTIVE MODELS\n\n");
 
-	for (int itype = 1; itype < ntypes + 1; itype++) {
+	//for (int itype = 1; itype < ntypes + 1; itype++) {
 
 		printf("-------------------------------------------------------------------------------\n");
 		printf("nparticle type = %d\n", itype);
@@ -453,9 +452,9 @@ void SmdMatDB::PrintData() {
 		}
 		printf("-------------------------------------------------------------------------------\n");
 
-	}
+	//}
 
-	printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
+//	printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 
 }
 
@@ -511,7 +510,7 @@ void SmdMatDB::DetermineReferenceSoundspeed() {
 			}
 
 		} else {
-			printf("\n\n *** WARNING ***\n Could not define reference sped of sound because no EOS is defined\n *** WARNING ***\n");
+			printf("\n\n *** WARNING ***\n Could not define reference sped of sound for particle type [%d] because no EOS is defined\n *** WARNING ***\n", itype);
 		}
 
 		gProps[itype].c0 = sqrt(gProps[itype].K0 / gProps[itype].rho0);

@@ -97,9 +97,7 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	if (retcode < 0) {
 		error->one(FLERR, "failed to read material database");
 	}
-	if (iproc == 0) {
-		matDB.PrintData();
-	}
+
 	corotated = false;
 	true_deformation = false;
 
@@ -1477,6 +1475,7 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 		if (comm->me == 0) {
 			printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 			printf("...SMD / MPM PROPERTIES OF PARTICLE TYPE %d\n\n", itype);
+			matDB.PrintData(itype);
 		}
 
 		/*
@@ -1514,10 +1513,10 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 		setflag[itype][jtype] = 1;
 		setflag[jtype][itype] = 1;
 
-		if (comm->me == 0) {
-			printf(">>========>>========>>========>>========>>========>>========>>========>>========\n");
-		}
+	}
 
+	if (comm->me == 0) {
+		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n");
 	}
 }
 
@@ -1860,7 +1859,6 @@ void PairSmdMpmLin::AdvanceParticles() {
 //						//v[i][2] = 0.0;
 //					}
 //				}
-
 
 			} else if (mode == PRESCRIBED_VELOCITY) {
 
