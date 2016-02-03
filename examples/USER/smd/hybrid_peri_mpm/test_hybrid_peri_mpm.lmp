@@ -22,7 +22,7 @@ variable        contact_stiffness equal 1*${K} # Contact stiffness between iPMB 
 variable        smax equal 1.0 # brittle failure strain for iPMB -- very large so effectively deactivated
 variable        syield equal 10.0 # plastic yield strain for iPMB -- very large so effectively deactivated
 variable        G0 equal -1.0 # energy release rate based failure criterion for iPMB. Deactived if < 0
-variable        visc equal 0.0 # artificial viscosity for iPMB
+variable        visc equal 0.1 # artificial viscosity for iPMB
 
 
 ####################################################################################################
@@ -137,6 +137,6 @@ balance          1.1 rcb
 #fix              balance_fix all balance 1000 1.1 rcb 
 
 
-smd_run_duration 1000 # run duration in physical time
+#smd_run_duration 1000 # run duration in physical time
 run              999999999 # run for a large number of timesteps. Exits if run duration is exceeded.
 

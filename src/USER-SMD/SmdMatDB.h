@@ -90,6 +90,13 @@ public:
 	std::vector<EosLinear> eosLinear_vec; // holds all linear eos models in this simulation
 
 	class EosTait { // this is EosId 2
+		/**
+		    a more detail class description :
+		    \author Me
+		    \date 29/07/2005
+
+		    This is the isothermal Murnaghan-Tait Equation-of-State
+		*/
 	public:
 		double K;
 		int n;

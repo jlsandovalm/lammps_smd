@@ -231,6 +231,8 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 						fpair = 0.0;
 					}
 
+					//printf("should no be here\n");
+
 					f[i][0] += delx * fpair;
 					f[i][1] += dely * fpair;
 					f[i][2] += delz * fpair;
@@ -274,6 +276,12 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 			if (j < 0) {
 				partner[i][jj] = 0;
 				continue;
+			}
+
+			if (type[i] != type[j]) {
+				printf("ERROR: type[i] != type[j] :: itype=%d, imol=%d, jtype=%d, jmol=%d\n\n", itype, type[i], jtype,
+						type[j]);
+				error->all(FLERR, "type[i] != type[j]");
 			}
 
 			if (molecule[i] != molecule[j]) {
@@ -340,6 +348,7 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 
 			// artificial viscosity
 			if (alpha[itype][jtype] > 0.0) {
+				// TODO: limit timestep if artificial viscosity is applied.
 				delvelx = vxtmp - v[j][0];
 				delvely = vytmp - v[j][1];
 				delvelz = vztmp - v[j][2];
@@ -486,6 +495,7 @@ double PairPeriGCG::init_one(int i, int j) {
 	bulkmodulus[j][i] = bulkmodulus[i][j];
 	alpha[j][i] = alpha[i][j];
 	smax[j][i] = smax[i][j];
+	c0[j][i] = c0[i][j];
 	syield[j][i] = syield[i][j];
 	G0[j][i] = G0[i][j];
 	contact_forces[j][i] = contact_forces[i][j];
