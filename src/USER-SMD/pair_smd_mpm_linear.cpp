@@ -1691,7 +1691,7 @@ void *PairSmdMpmLin::extract(const char *str, int &i) {
 		return (void *) stressTensor;
 	} else if (strcmp(str, "smd/ulsph/velocityGradient_ptr") == 0) {
 		return (void *) L;
-	} else if (strcmp(str, "smd/ulsph/dtCFL_ptr") == 0) {
+	} else if (strcmp(str, "smd/mpm/dtCFL_ptr") == 0) {
 		return (void *) &dtCFL;
 	} else if (strcmp(str, "smd/mpm/particleVelocities_ptr") == 0) {
 		return (void *) particleVelocities;

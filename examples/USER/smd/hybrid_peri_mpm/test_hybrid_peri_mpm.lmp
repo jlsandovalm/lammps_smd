@@ -18,11 +18,11 @@
 ####################################################################################################
 variable 	rho equal 1.0 # initial mass density
 variable        K equal 1 # stiffness for Peridynamic material model
-variable        contact_stiffness equal 1*${K} # Contact stiffness between iPMB and MPM particles
+variable        contact_stiffness equal 0.1*${K} # Contact stiffness between iPMB and MPM particles
 variable        smax equal 1.0 # brittle failure strain for iPMB -- very large so effectively deactivated
 variable        syield equal 10.0 # plastic yield strain for iPMB -- very large so effectively deactivated
 variable        G0 equal -1.0 # energy release rate based failure criterion for iPMB. Deactived if < 0
-variable        visc equal 0.1 # artificial viscosity for iPMB
+variable        visc equal 1.0 # artificial viscosity for iPMB
 
 
 ####################################################################################################
@@ -93,7 +93,7 @@ pair_style      hybrid/overlay smd/peri_ipmb &
 # note that mpm pair style must be listed at last position if multiple pair styles are used
 pair_coeff      1 1 smd/mpm_linear
 pair_coeff      2 2 smd/peri_ipmb ${rho} ${K} ${smax} ${G0} ${visc} ${syield} 0
-pair_coeff      1 2 smd/hertz ${K}
+pair_coeff      1 2 smd/hertz ${contact_stiffness}
 
 
 ####################################################################################################
@@ -126,7 +126,7 @@ compute         alleint all reduce sum c_eint
 compute         total_heat all reduce sum c_heat
 variable        etot equal pe+ke+c_alleint+f_gfix # total energy of the system
 thermo 10
-thermo_style custom step dt time pe ke c_alleint c_total_heat f_gfix v_etot
+thermo_style custom step dt time pe ke c_alleint c_total_heat f_gfix v_etot f_dtfix[1] f_dtfix[2] f_dtfix[3] f_dtfix[4] f_dtfix[5] f_dtfix[6]
 
 ####################################################################################################
 # RUN SIMULATION

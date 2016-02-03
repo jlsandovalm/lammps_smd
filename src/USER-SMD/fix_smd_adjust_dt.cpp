@@ -57,7 +57,7 @@ FixSMDTlsphDtReset::FixSMDTlsphDtReset(LAMMPS *lmp, int narg, char **arg) :
 	time_depend = 1;
 	scalar_flag = 1;
 	vector_flag = 1;
-	size_vector = 2;
+	size_vector = NUM; // there are NUM different methods
 	global_freq = 1;
 	extscalar = 0;
 	extvector = 0;
@@ -114,50 +114,73 @@ void FixSMDTlsphDtReset::end_of_step() {
 	double *dt_TRI = (double *) force->pair->extract("smd/tri_surface/stable_time_increment_ptr", itmp);
 	double *dt_HERTZ = (double *) force->pair->extract("smd/hertz/stable_time_increment_ptr", itmp);
 	double *dt_PERI_IPMB = (double *) force->pair->extract("smd/peri_ipmb/stable_time_increment_ptr", itmp);
+	double *dt_MPM = (double *) force->pair->extract("smd/mpm/dtCFL_ptr", itmp);
 
-	if ((dtCFL_TLSPH == NULL) && (dtCFL_ULSPH == NULL) && (dt_TRI == NULL) && (dt_HERTZ == NULL) && (dt_PERI_IPMB == NULL)) {
+	if ((dtCFL_TLSPH == NULL) && (dtCFL_ULSPH == NULL) && (dt_TRI == NULL) && (dt_HERTZ == NULL) && (dt_PERI_IPMB == NULL)
+			&& (dt_MPM == NULL)) {
 		error->all(FLERR, "fix smd/adjust_dt failed to access a valid dtCFL");
 	}
 
+	double dt_array[NUM];
 	if (dtCFL_TLSPH != NULL) {
 		dtmin = MIN(dtmin, *dtCFL_TLSPH);
+		dt_array[TLSPH] = *dtCFL_TLSPH;
 	}
 
 	if (dtCFL_ULSPH != NULL) {
 		dtmin = MIN(dtmin, *dtCFL_ULSPH);
+		dt_array[ULSPH] = *dtCFL_ULSPH;
 	}
 
 	if (dt_TRI != NULL) {
 		dtmin = MIN(dtmin, *dt_TRI);
+		dt_array[TRI] = *dt_TRI;
 	}
 
 	if (dt_HERTZ != NULL) {
 		dtmin = MIN(dtmin, *dt_HERTZ);
+		dt_array[HERTZ] = *dt_HERTZ;
 	}
 
 	if (dt_PERI_IPMB != NULL) {
 		dtmin = MIN(dtmin, *dt_PERI_IPMB);
+		dt_array[PERI_IPMB] = *dt_PERI_IPMB;
 	}
 
-	double **f = atom->f;
-	double *rmass = atom->rmass;
-	double *radius = atom->radius;
-	int *mask = atom->mask;
-	int nlocal = atom->nlocal;
-	double dtf, fsq, massinv;
-
-	for (int i = 0; i < nlocal; i++) {
-		if (mask[i] & groupbit) {
-			massinv = 1.0 / rmass[i];
-			fsq = f[i][0] * f[i][0] + f[i][1] * f[i][1] + f[i][2] * f[i][2];
-			if (fsq > 0.0) {
-				dtf = sqrt(2.0 * radius[i] / (sqrt(fsq) * massinv));
-			} else {
-				dtf = BIG;
-			}
-			dtmin = MIN(dtmin, dtf);
-		}
+	if (dt_MPM != NULL) {
+		dtmin = MIN(dtmin, *dt_MPM);
+		dt_array[MPM] = *dt_MPM;
+		//printf("MPM timestep is %f, index is %d\n", dt_array[MPM], MPM);
 	}
+
+	MPI_Allreduce(&dt_array, &reduced_dt_array, NUM, MPI_DOUBLE, MPI_MIN, world);
+
+//	printf("reduced, local\n");
+//	for (int i = 1; i < NUM; i++) {
+//		if (i == PERI_IPMB) {
+//			printf("PERI_IPMB: %f %f\n", reduced_dt_array[i], dt_array[i]);
+//		}
+//	}
+
+//	double **f = atom->f;
+//	double *rmass = atom->rmass;
+//	double *radius = atom->radius;
+//	int *mask = atom->mask;
+//	int nlocal = atom->nlocal;
+//	double dtf, fsq, massinv;
+//
+//	for (int i = 0; i < nlocal; i++) {
+//		if (mask[i] & groupbit) {
+//			massinv = 1.0 / rmass[i];
+//			fsq = f[i][0] * f[i][0] + f[i][1] * f[i][1] + f[i][2] * f[i][2];
+//			if (fsq > 0.0) {
+//				dtf = sqrt(2.0 * radius[i] / (sqrt(fsq) * massinv));
+//			} else {
+//				dtf = BIG;
+//			}
+//			dtmin = MIN(dtmin, dtf);
+//		}
+//	}
 
 	dtmin *= safety_factor; // apply safety factor
 	MPI_Allreduce(&dtmin, &dt, 1, MPI_DOUBLE, MPI_MIN, world);
@@ -191,6 +214,14 @@ void FixSMDTlsphDtReset::end_of_step() {
 
 double FixSMDTlsphDtReset::compute_scalar() {
 	return t_elapsed;
+}
+/* ---------------------------------------------------------------------- */
+
+double FixSMDTlsphDtReset::compute_vector(int n) {
+	// return minimum timesteps for each method in this order:
+	// enum {TLSPH = 0, ULSPH = 1, TRI = 2, HERTZ = 3, PERI_IPMB = 4, MPM = 5, NUM = 6};
+
+	return safety_factor * reduced_dt_array[n];
 }
 
 /* ----------------------------------------------------------------------

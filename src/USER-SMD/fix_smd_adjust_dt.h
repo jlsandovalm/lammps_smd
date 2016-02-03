@@ -46,12 +46,15 @@ public:
 	void initial_integrate(int);
 	void end_of_step();
 	double compute_scalar();
+	double compute_vector(int n);
 	void write_restart(FILE *);
 	void restart(char *);
 
 private:
+	enum {TLSPH = 0, ULSPH = 1, TRI = 2, HERTZ = 3, PERI_IPMB = 4, MPM = 5, NUM = 6};
 	double safety_factor;
 	double dt, t_elapsed;
+	double reduced_dt_array[NUM];
 };
 
 }

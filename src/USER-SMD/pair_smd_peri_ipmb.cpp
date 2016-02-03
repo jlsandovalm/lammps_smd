@@ -279,8 +279,7 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 			}
 
 			if (type[i] != type[j]) {
-				printf("ERROR: type[i] != type[j] :: itype=%d, imol=%d, jtype=%d, jmol=%d\n\n", itype, type[i], jtype,
-						type[j]);
+				printf("ERROR: type[i] != type[j] :: itype=%d, imol=%d, jtype=%d, jmol=%d\n\n", itype, type[i], jtype, type[j]);
 				error->all(FLERR, "type[i] != type[j]");
 			}
 
@@ -337,23 +336,25 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 			evdwl = 0.5 * c * stretch * stretch * vfrac[i] * vfrac[j] * vfrac_scale;
 			fpair = -c * vfrac[i] * vfrac[j] * stretch / r0[i][jj] * vfrac_scale;
 
-			dforce_dr = c * vfrac[i] * vfrac[j] / r0[i][jj];
-			k = 2.0 * dforce_dr / (rmass[i] + rmass[j]);
-			dt_crit = 4.0 / sqrt(k);
-			if (k < 0.0) {
-				error->one(FLERR, "k is negative");
-			}
+			dt_crit = radius[i] / c0[itype][jtype];
+
 			//printf("dt_crit is %f, df_dr=%f\n", dt_crit, dforce_dr);
 			stable_time_increment = MIN(stable_time_increment, dt_crit);
 
 			// artificial viscosity
 			if (alpha[itype][jtype] > 0.0) {
-				// TODO: limit timestep if artificial viscosity is applied.
 				delvelx = vxtmp - v[j][0];
 				delvely = vytmp - v[j][1];
 				delvelz = vztmp - v[j][2];
 				strain_rate = (delx * delvelx + dely * delvely + delz * delvelz) / (r * r0[i][jj]); // pair-wise strain rate
-				fpair -= 0.5 * (vfrac[i] + vfrac[j]) * rho0[itype][jtype] * alpha[itype][jtype] * c0[itype][jtype] * strain_rate;
+				double weight = 0.5 * (vfrac[i] / vinter[i] + vfrac[j] / vinter[j]);
+				double fvisc = weight * (vfrac[i] + vfrac[j]) * rho0[itype][jtype] * alpha[itype][jtype] * c0[itype][jtype]
+						* strain_rate;
+				fpair -= fvisc;
+
+				dt_crit = radius[i] / (c0[itype][jtype] + alpha[itype][jtype] * c0[itype][jtype]);
+
+				stable_time_increment = MIN(stable_time_increment, dt_crit);
 			}
 
 			// project force -- missing factor of r is recovered here as delx, dely ... are not unit vectors
