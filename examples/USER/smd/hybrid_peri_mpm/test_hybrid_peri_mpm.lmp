@@ -18,7 +18,7 @@
 ####################################################################################################
 variable 	rho equal 1.0 # initial mass density
 variable        K equal 1 # stiffness for Peridynamic material model
-variable        contact_stiffness equal 0.1*${K} # Contact stiffness between iPMB and MPM particles
+variable        contact_stiffness equal 1*${K} # Contact stiffness between iPMB and MPM particles
 variable        smax equal 1.0 # brittle failure strain for iPMB -- very large so effectively deactivated
 variable        syield equal 10.0 # plastic yield strain for iPMB -- very large so effectively deactivated
 variable        G0 equal -1.0 # energy release rate based failure criterion for iPMB. Deactived if < 0
@@ -78,7 +78,7 @@ set 		group peri_particles diameter ${peri_kernel} # set SPH kernel radius
 ####################################################################################################
 # DEFINE BOUNDARY CONDITIONS
 ####################################################################################################
-fix		gfix all gravity 0.0001 vector 0.0 0.0 -1
+#fix		gfix all gravity 0.0001 vector 0.0 0.0 -1
 
 # create a group to hold the bottom layer of plate particles at constant position
 region          bot block EDGE EDGE EDGE EDGE EDGE 0.51 units box
@@ -101,13 +101,15 @@ pair_coeff      1 2 smd/hertz ${contact_stiffness}
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
 # --- time integration of MPM particles is handled inside MPM pair style --- 
+fix             force_fix1 peri_particles setforce 0 0 NULL
+fix             force_fix2 peri_particles addforce 0 0 -0.001
 fix             nve_peri_fix peri_particles nve # peri particles need to have a time integration fix
 
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
 ####################################################################################################
-variable        dumpFreq equal 10
+variable        dumpFreq equal 100
 compute         P mpm_particles smd/plastic_strain
 compute 	vol all smd/volume
 compute         contact_radius all smd/contact_radius
@@ -124,19 +126,22 @@ dump_modify 	dump_id first yes
 ####################################################################################################
 compute         alleint all reduce sum c_eint
 compute         total_heat all reduce sum c_heat
-variable        etot equal pe+ke+c_alleint+f_gfix # total energy of the system
+variable        etot equal pe+ke+c_alleint # total energy of the system
 thermo 10
-thermo_style custom step dt time pe ke c_alleint c_total_heat f_gfix v_etot f_dtfix[1] f_dtfix[2] f_dtfix[3] f_dtfix[4] f_dtfix[5] f_dtfix[6]
+thermo_style custom step dt time pe ke c_alleint c_total_heat v_etot f_dtfix[1] f_dtfix[2] f_dtfix[3] f_dtfix[4] f_dtfix[5] f_dtfix[6]
 
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
 run 0
-velocity         peri_particles set 0.1 0.1 0 units box
-balance          1.1 rcb
+#velocity         peri_particles set 0.1 0.1 0 units box
+#balance          1.1 rcb
 #fix              balance_fix all balance 1000 1.1 rcb 
 
+variable         a equal f_force_fix1[2]
+fix              extra all print 100 "$a" file coord.txt screen no
 
-#smd_run_duration 1000 # run duration in physical time
+
+smd_run_duration 1000 # run duration in physical time
 run              999999999 # run for a large number of timesteps. Exits if run duration is exceeded.
 

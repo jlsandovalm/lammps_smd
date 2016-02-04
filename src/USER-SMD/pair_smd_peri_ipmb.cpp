@@ -507,7 +507,7 @@ double PairPeriGCG::init_one(int i, int j) {
 /* ----------------------------------------------------------------------
  init specific to this pair style
  ------------------------------------------------------------------------- */
-ATTRIBUTE_NO_SANITIZE_ADDRESS
+//ATTRIBUTE_NO_SANITIZE_ADDRESS
 void PairPeriGCG::init_style() {
 	int i;
 
@@ -527,6 +527,11 @@ void PairPeriGCG::init_style() {
 		fixarg[2] = (char *) "PERI_NEIGH_GCG";
 		modify->add_fix(3, fixarg);
 		delete[] fixarg;
+
+		// make fix peri neighborlist point to this pair's neighbor list
+		fix_peri_neigh_gcg = (FixPeriNeighGCG *) modify->fix[modify->nfix - 1];
+		fix_peri_neigh_gcg->pair = this;
+
 	}
 
 // find associated PERI_NEIGH fix that must exist
@@ -543,9 +548,6 @@ void PairPeriGCG::init_style() {
 	neighbor->requests[irequest]->half = 0;
 	neighbor->requests[irequest]->gran = 1;
 
-	fix_peri_neigh_gcg = (FixPeriNeighGCG *) modify->fix[modify->nfix - 1];
-	fix_peri_neigh_gcg->pair = this;
-
 	double *radius = atom->radius;
 	int nlocal = atom->nlocal;
 	double maxrad_one = 0.0;
@@ -556,7 +558,7 @@ void PairPeriGCG::init_style() {
 
 	//printf("proc %d has maxrad %f\n", comm->me, maxrad_one);
 
-	MPI_Allreduce(&maxrad_one, &cutoff_global, atom->ntypes, MPI_DOUBLE, MPI_MAX, world);
+	MPI_Allreduce(&maxrad_one, &cutoff_global, 1, MPI_DOUBLE, MPI_MAX, world);
 	cutoff_global = maxrad_one;
 
 	if (comm->me == 0) {
