@@ -2,13 +2,17 @@
 # 
 # Test of hybrid interaction: peri/ipmb and mpm
 # A stationary plate is modelled as elastic/perfectly plastic with MPM.
-# A block of a brittel material, modelled using the Peridynamic pair style peri/ipmb, impacts this
+# A block of a hard elastic material, modelled using the Peridynamic pair style peri/ipmb, impacts this
 # plate. Contact between both solid bodies is handeled via a Hertzian repulsive potential.
 #
 # Note that MPM material model & parameters are defined in file "materials.ini"
 # Peridynamic pair style however needs material parameter definitions directly in this LAMMPS script.
 #
-# unit sytem: GPa / mm / ms
+# Note that the Hertzian contact is frictioneless. The only lateral forces measured on the scracting
+# block are due to steric hindrance.
+#
+# unit sytem: You can use any _consistent_ unit system, as these are idealized parameters,
+# think e.g. of GPa / mm / ms
 #
 ####################################################################################################
 
@@ -22,7 +26,7 @@ variable        contact_stiffness equal 1*${K} # Contact stiffness between iPMB 
 variable        smax equal 1.0 # brittle failure strain for iPMB -- very large so effectively deactivated
 variable        syield equal 10.0 # plastic yield strain for iPMB -- very large so effectively deactivated
 variable        G0 equal -1.0 # energy release rate based failure criterion for iPMB. Deactived if < 0
-variable        visc equal 1.0 # artificial viscosity for iPMB
+variable        visc equal 0.1 # artificial viscosity for iPMB
 
 
 ####################################################################################################
@@ -33,10 +37,10 @@ units		si
 boundary        p p s # simulation box boundaries
 atom_style      smd
 atom_modify	map array
-comm_modify     vel yes
+comm_modify     vel yes # mandatory for SMD
 comm_style      tiled
 neigh_modify    every 10 delay 0 check yes
-newton          off
+newton          off # mandatory for SMD
 
 ####################################################################################################
 # CREATE INITIAL GEOMETRY
@@ -62,7 +66,7 @@ group           peri_particles type 2
 variable 	vol_one equal ${l0}^3 # volume of one particle -- assuming sc lattice
 variable 	skin equal 0.2*${l0} # Verlet list range
 neighbor        ${skin} bin
-variable        cr equal ${l0}/2
+variable        cr equal ${l0}/2 # "contact" radius used by Hertzian potential
 set             group all smd_contact_radius ${cr}
 set 		group all volume ${vol_one}
 set             group all smd_mass_density ${rho}
@@ -78,11 +82,19 @@ set 		group peri_particles diameter ${peri_kernel} # set SPH kernel radius
 ####################################################################################################
 # DEFINE BOUNDARY CONDITIONS
 ####################################################################################################
-#fix		gfix all gravity 0.0001 vector 0.0 0.0 -1
-
 # create a group to hold the bottom layer of plate particles at constant position
 region          bot block EDGE EDGE EDGE EDGE EDGE 0.51 units box
 set             region bot mol 1000 # MPM particles with mol id 1000 are not moved in the code
+
+# press peri particles downwards using a constant force along z
+fix             force_fix2 peri_particles addforce 0 0 -0.002
+
+# add a viscous damping force on peri particles to avoid oscillations in z
+fix             damp_fix peri_particles viscous 0.01
+
+# make peri particles move at constant velocity by zeroing out force in xy-plane, leave z untouched
+velocity        peri_particles set 0.1 0.1 0 units box
+fix             force_fix1 peri_particles setforce 0 0 NULL
 
 ####################################################################################################
 # INTERACTION PHYSICS / MATERIAL MODEL
@@ -101,8 +113,6 @@ pair_coeff      1 2 smd/hertz ${contact_stiffness}
 ####################################################################################################
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
 # --- time integration of MPM particles is handled inside MPM pair style --- 
-fix             force_fix1 peri_particles setforce 0 0 NULL
-fix             force_fix2 peri_particles addforce 0 0 -0.001
 fix             nve_peri_fix peri_particles nve # peri particles need to have a time integration fix
 
 
@@ -111,14 +121,13 @@ fix             nve_peri_fix peri_particles nve # peri particles need to have a 
 ####################################################################################################
 variable        dumpFreq equal 100
 compute         P mpm_particles smd/plastic_strain
-compute 	vol all smd/volume
 compute         contact_radius all smd/contact_radius
-compute         S mpm_particles smd/ulsph_stress
+compute         S mpm_particles smd/ulsph_stress # S[7] is von Mises stress
 compute         eint all smd/internal_energy # elastic continuum energy 
 compute         heat all smd/heat # dissipated continuum energy, e.g. by plastic deformation
 
-dump 		dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz &
-			c_vol c_contact_radius proc c_P c_S[7] c_eint c_heat
+dump 		dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz fx fy fz &
+			c_contact_radius proc c_P c_S[7] c_eint c_heat
 dump_modify 	dump_id first yes
 
 ####################################################################################################
@@ -128,19 +137,19 @@ compute         alleint all reduce sum c_eint
 compute         total_heat all reduce sum c_heat
 variable        etot equal pe+ke+c_alleint # total energy of the system
 thermo 10
-thermo_style custom step dt time pe ke c_alleint c_total_heat v_etot f_dtfix[1] f_dtfix[2] f_dtfix[3] f_dtfix[4] f_dtfix[5] f_dtfix[6]
+thermo_style custom step dt time pe ke c_alleint c_total_heat v_etot
+
+variable         t equal f_dtfix # this is time
+variable         ffx equal f_force_fix2[1] # x force on scratching body
+variable         ffy equal f_force_fix2[2] # y force
+fix              extra all print 10 "$t ${ffx} ${ffy}" file force_history.txt screen no
 
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
-run 0
-#velocity         peri_particles set 0.1 0.1 0 units box
-#balance          1.1 rcb
-#fix              balance_fix all balance 1000 1.1 rcb 
 
-variable         a equal f_force_fix1[2]
-fix              extra all print 100 "$a" file coord.txt screen no
-
+balance          1.1 rcb # initial and continous load balancing
+fix              balance_fix all balance 1000 1.1 rcb 
 
 smd_run_duration 1000 # run duration in physical time
 run              999999999 # run for a large number of timesteps. Exits if run duration is exceeded.
