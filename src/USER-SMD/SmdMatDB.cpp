@@ -334,8 +334,11 @@ int SmdMatDB::ReadStrengthSimplePlasticity(CSimpleIni &ini, const int itype) {
 		return -1;
 	}
 
+	// add a new material model of this type with specific parameters
 	strengthSimplePlasticity_vec.push_back(StrengthSimplePlasticity(E, nu, sigmaYield, section));
+	// make a note in gProps of the type of this material
 	gProps[itype].strengthType = 2;
+	// make a note in gProps as to where this specific instance of this material model is located
 	gProps[itype].strengthTypeIdx = strengthSimplePlasticity_vec.size() - 1;
 
 	return 0;

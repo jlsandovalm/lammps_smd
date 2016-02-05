@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 #include <Eigen/Eigen>
+#include "material_models/TestMat.h"
+// test 2
 
 #ifndef SMDMATDB_H_
 #define SMDMATDB_H_
@@ -252,6 +254,9 @@ public:
 		}
 	};
 	std::vector<ViscosityNewton> viscNewton_vec; // holds all Newton viscosity models in this simulation
+
+
+	std::vector<StrengthGCG> strengthGCG_vec; // holds all linear strength models in this simulation
 
 private:
 	int ntypes;
