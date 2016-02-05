@@ -16,6 +16,17 @@
 #ifndef SMDMATDB_H_
 #define SMDMATDB_H_
 
+/*
+ * Guide to adding new materials:
+ * (roadmap, not fully implemented yet)
+ *
+ * 1) implement a new EOS, Strength, or viscosity class in lib/smd/material_models
+ *    solely as a c++ header file which must be included here.
+ * 2) all a std::vector here which holds all instances of the new material model
+ * 3) Call the ReadParamters method of the newly defined class either in ReadEoss, ReadStrengths, or ReadViscosities
+ * 4) Add the new material model to the ComputePressure, ComputeDevStressIncrement or ComputeViscousStress methods
+ * 5) Call the PrintParameters method of the newly defined class in the PrintData method defined here.
+ */
 class SmdMatDB {
 public:
 	SmdMatDB();
