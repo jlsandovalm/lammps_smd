@@ -122,19 +122,21 @@ fix             nve_peri_fix peri_particles nve # peri particles need to have a 
 variable        dumpFreq equal 100
 compute         P mpm_particles smd/plastic_strain
 compute         contact_radius all smd/contact_radius
-compute         S mpm_particles smd/ulsph_stress # S[7] is von Mises stress
-compute         eint all smd/internal_energy # elastic continuum energy 
-compute         heat all smd/heat # dissipated continuum energy, e.g. by plastic deformation
+compute         S mpm_particles smd/stress # S[7] is von Mises stress
+compute         smd_energy all smd/energy # elastic continuum energy 
+variable        eela atom c_smd_energy[1]
+variable        heat atom c_smd_energy[2]
+variable        temp atom c_smd_energy[2]
 
 dump 		dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz fx fy fz &
-			c_contact_radius proc c_P c_S[7] c_eint c_heat
+			c_contact_radius proc c_P c_S[7] v_eela v_heat v_temp
 dump_modify 	dump_id first yes
 
 ####################################################################################################
 # STATUS OUTPUT
 ####################################################################################################
-compute         alleint all reduce sum c_eint
-compute         total_heat all reduce sum c_heat
+compute         alleint all reduce sum v_eela
+compute         total_heat all reduce sum v_heat
 variable        etot equal pe+ke+c_alleint # total energy of the system
 thermo 10
 thermo_style custom step dt time pe ke c_alleint c_total_heat v_etot

@@ -22,8 +22,10 @@
 
 using namespace std;
 using namespace Eigen;
+using namespace smdmatdb;
 
 SmdMatDB::SmdMatDB() {
+	smdmatdb::SmdMatDB::initialized = false;
 }
 
 SmdMatDB::~SmdMatDB() {
@@ -31,6 +33,16 @@ SmdMatDB::~SmdMatDB() {
 }
 
 int SmdMatDB::ReadMaterials(const int ntypes__) {
+
+	if (initialized) { // return if some pair style has already called this
+		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+		printf("alrady initialized\n");
+		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+		return 0;
+	}
+
 	ntypes = ntypes__;
 
 	CSimpleIni ini;
@@ -86,6 +98,7 @@ int SmdMatDB::ReadMaterials(const int ntypes__) {
 	}
 
 	DetermineReferenceSoundspeed();
+	initialized = true;
 
 	return 0;
 }
@@ -101,6 +114,10 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 	gProps[itype].rho0 = ini.GetDoubleValue(sectionName.c_str(), "rho0", DOUBLE_NOT_FOUND);
 	if (gProps[itype].rho0 == DOUBLE_NOT_FOUND) {
 		printf("could not read rho0 for type %d\n", itype);
+		return -1;
+	}
+	if (gProps[itype].rho0 < 1.0e-16) {
+		printf("rho0 for type %d\n is a very small number. What are you thinking?", itype);
 		return -1;
 	}
 
@@ -407,53 +424,54 @@ void SmdMatDB::PrintData(const int itype) {
 
 	//for (int itype = 1; itype < ntypes + 1; itype++) {
 
-		printf("-------------------------------------------------------------------------------\n");
-		printf("nparticle type = %d\n", itype);
+	printf("-------------------------------------------------------------------------------\n");
+	printf("nparticle type = %d\n", itype);
 
-		printf("... reference mass density is %f\n", gProps[itype].rho0);
-		printf("... reference speed of sound is %f\n", gProps[itype].c0);
-		printf("... reference shear modulus is %f\n", gProps[itype].G0);
-		printf("\n");
+	printf("... reference mass density is %f\n", gProps[itype].rho0);
+	printf("... reference speed of sound is %f\n", gProps[itype].c0);
+	printf("... reference shear modulus is %f\n", gProps[itype].G0);
+	printf("... heat capacity is %f\n", gProps[itype].cp);
+	printf("\n");
 
-		int eosType = gProps[itype].eosType;
-		if (eosType > 0) {
-			printf("EOS name is %s\n", gProps[itype].eosName.c_str());
-			int idx = gProps[itype].eosTypeIdx;
-			if (eosType == 1) { // linear EOS
-				eosLinear_vec[idx].PrintParameters();
-			} else if (eosType == 2) { // Murnaghan Tait isothermal EOS
-				eosTait_vec[idx].PrintParameters();
-			}
-		} else {
-			printf("... no EOS defined\n");
+	int eosType = gProps[itype].eosType;
+	if (eosType > 0) {
+		printf("EOS name is %s\n", gProps[itype].eosName.c_str());
+		int idx = gProps[itype].eosTypeIdx;
+		if (eosType == 1) { // linear EOS
+			eosLinear_vec[idx].PrintParameters();
+		} else if (eosType == 2) { // Murnaghan Tait isothermal EOS
+			eosTait_vec[idx].PrintParameters();
 		}
+	} else {
+		printf("... no EOS defined\n");
+	}
 
-		printf("\n");
-		int strengthType = gProps[itype].strengthType;
-		if (strengthType > 0) {
-			printf("material strength name is %s\n", gProps[itype].strengthName.c_str());
-			int idx = gProps[itype].strengthTypeIdx;
-			if (strengthType == 1) { // linear elastic
-				strengthLinear_vec[idx].PrintParameters();
-			} else if (strengthType == 2) { // simple plasticity model
-				strengthSimplePlasticity_vec[idx].PrintParameters();
-			}
-		} else {
-			printf("... no material strength model defined\n");
+	printf("\n");
+	int strengthType = gProps[itype].strengthType;
+	if (strengthType > 0) {
+		printf("material strength name is %s\n", gProps[itype].strengthName.c_str());
+		int idx = gProps[itype].strengthTypeIdx;
+		if (strengthType == 1) { // linear elastic
+			strengthLinear_vec[idx].PrintParameters();
+		} else if (strengthType == 2) { // simple plasticity model
+			strengthSimplePlasticity_vec[idx].PrintParameters();
 		}
+	} else {
+		printf("... no material strength model defined\n");
+	}
 
-		printf("\n");
-		int viscType = gProps[itype].viscType;
-		if (viscType > 0) {
-			printf("material viscosity name is %s\n", gProps[itype].viscName.c_str());
-			int idx = gProps[itype].viscTypeIdx;
-			if (viscType == 1) { // Newtonian viscosity
-				viscNewton_vec[idx].PrintParameters();
-			}
-		} else {
-			printf("... no viscosity model defined\n");
+	printf("\n");
+	int viscType = gProps[itype].viscType;
+	if (viscType > 0) {
+		printf("material viscosity name is %s\n", gProps[itype].viscName.c_str());
+		int idx = gProps[itype].viscTypeIdx;
+		if (viscType == 1) { // Newtonian viscosity
+			viscNewton_vec[idx].PrintParameters();
 		}
-		printf("-------------------------------------------------------------------------------\n");
+	} else {
+		printf("... no viscosity model defined\n");
+	}
+	printf("-------------------------------------------------------------------------------\n");
 
 	//}
 
@@ -513,7 +531,9 @@ void SmdMatDB::DetermineReferenceSoundspeed() {
 			}
 
 		} else {
-			printf("\n\n *** WARNING ***\n Could not define reference sped of sound for particle type [%d] because no EOS is defined\n *** WARNING ***\n", itype);
+			printf(
+					"\n\n *** WARNING ***\n Could not define reference sped of sound for particle type [%d] because no EOS is defined\n *** WARNING ***\n",
+					itype);
 		}
 
 		gProps[itype].c0 = sqrt(gProps[itype].K0 / gProps[itype].rho0);

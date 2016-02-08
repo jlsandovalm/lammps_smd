@@ -23,7 +23,7 @@
  ------------------------------------------------------------------------- */
 
 #include "string.h"
-#include "compute_smd_tlsph_stress.h"
+#include "compute_smd_energy.h"
 #include "atom.h"
 #include "update.h"
 #include "modify.h"
@@ -31,82 +31,89 @@
 #include "force.h"
 #include "memory.h"
 #include "error.h"
-#include "pair.h"
-#include <Eigen/Eigen>
-using namespace Eigen;
+#include "SmdMatDB.h"
+
+using namespace smdmatdb;
 using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-ComputeSMDTLSPHStress::ComputeSMDTLSPHStress(LAMMPS *lmp, int narg, char **arg) :
+ComputeSmdEnergy::ComputeSmdEnergy(LAMMPS *lmp, int narg, char **arg) :
 		Compute(lmp, narg, arg) {
 	if (narg != 3)
-		error->all(FLERR, "Illegal compute smd/tlsph_stress command");
+		error->all(FLERR, "Illegal compute smd/internal_energy command");
+	if (atom->e_flag != 1)
+		error->all(FLERR, "compute smd/internal_energy command requires atom_style with internal_energy (e.g. smd)");
 
 	peratom_flag = 1;
-	size_peratom_cols = 7;
+	size_peratom_cols = 3;
 
 	nmax = 0;
-	stress_array = NULL;
+	energy_array = NULL;
+
+	int retcode = matDB.ReadMaterials(atom->ntypes);
+	if (retcode < 0) {
+		error->one(FLERR, "failed to read material database");
+	}
 }
 
 /* ---------------------------------------------------------------------- */
 
-ComputeSMDTLSPHStress::~ComputeSMDTLSPHStress() {
-	memory->sfree(stress_array);
+ComputeSmdEnergy::~ComputeSmdEnergy() {
+	memory->sfree(energy_array);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeSMDTLSPHStress::init() {
+void ComputeSmdEnergy::init() {
 
 	int count = 0;
 	for (int i = 0; i < modify->ncompute; i++)
-		if (strcmp(modify->compute[i]->style, "smd/tlsph_stress") == 0)
+		if (strcmp(modify->compute[i]->style, "smd/internal_energy") == 0)
 			count++;
 	if (count > 1 && comm->me == 0)
-		error->warning(FLERR, "More than one compute smd/tlsph_stress");
+		error->warning(FLERR, "More than one compute smd/internal_energy");
 }
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeSMDTLSPHStress::compute_peratom() {
+void ComputeSmdEnergy::compute_peratom() {
 	invoked_peratom = update->ntimestep;
-	Matrix3d stress_deviator;
-	double von_mises_stress;
 
-	// grow vector array if necessary
+	// grow rhoVector array if necessary
 
 	if (atom->nlocal > nmax) {
-		memory->destroy(stress_array);
+		memory->destroy(energy_array);
 		nmax = atom->nmax;
-		memory->create(stress_array, nmax, size_peratom_cols, "stresstensorVector");
-		array_atom = stress_array;
+		memory->create(energy_array, nmax, size_peratom_cols, "compute:smd_energies");
+		array_atom = energy_array;
 	}
 
-	int itmp = 0;
-	Matrix3d *T = (Matrix3d *) force->pair->extract("smd/tlsph/stressTensor_ptr", itmp);
-	if (T == NULL) {
-		error->all(FLERR, "compute smd/tlsph_stress could not access stress tensors. Are the matching pair styles present?");
-	}
-	int nlocal = atom->nlocal;
+	double *e = atom->e;
+	double *heat = atom->heat;
+	double *rmass = atom->rmass;
 	int *mask = atom->mask;
+	int *type = atom->type;
+	int nlocal = atom->nlocal;
+	int itype;
+
+	printf("init? %d\n", matDB.initialized);
 
 	for (int i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
-			stress_deviator = Deviator(T[i]);
-			von_mises_stress = sqrt(3. / 2.) * stress_deviator.norm();
-			stress_array[i][0] = T[i](0, 0); // xx
-			stress_array[i][1] = T[i](1, 1); // yy
-			stress_array[i][2] = T[i](2, 2); // zz
-			stress_array[i][3] = T[i](0, 1); // xy
-			stress_array[i][4] = T[i](0, 2); // xz
-			stress_array[i][5] = T[i](1, 2); // yz
-			stress_array[i][6] = von_mises_stress;
-		} else {
-			for (int j = 0; j < size_peratom_cols; j++) {
-				stress_array[i][j] = 0.0;
+			itype = type[i];
+			energy_array[i][0] = e[i];
+			energy_array[i][1] = heat[i];
+			//printf("itype = %d\n", itype);
+			if (matDB.initialized) {
+				energy_array[i][2] = heat[i] / (rmass[i] * matDB.gProps[itype].cp);
+			} else {
+				energy_array[i][2] = 0.0;
 			}
+		} else {
+			energy_array[i][0] = 0.0;
+			energy_array[i][1] = 0.0;
+			energy_array[i][2] = 0.0;
 		}
 	}
 }
@@ -115,17 +122,7 @@ void ComputeSMDTLSPHStress::compute_peratom() {
  memory usage of local atom-based array
  ------------------------------------------------------------------------- */
 
-double ComputeSMDTLSPHStress::memory_usage() {
-	double bytes = size_peratom_cols * nmax * sizeof(double);
+double ComputeSmdEnergy::memory_usage() {
+	double bytes = nmax * sizeof(double);
 	return bytes;
-}
-
-/*
- * deviator of a tensor
- */
-Matrix3d ComputeSMDTLSPHStress::Deviator(Matrix3d M) {
-	Matrix3d eye;
-	eye.setIdentity();
-	eye *= M.trace() / 3.0;
-	return M - eye;
 }

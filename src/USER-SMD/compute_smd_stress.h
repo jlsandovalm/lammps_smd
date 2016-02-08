@@ -25,7 +25,7 @@
 
 #ifdef COMPUTE_CLASS
 
-ComputeStyle(smd/tlsph_stress, ComputeSMDTLSPHStress)
+ComputeStyle(smd/stress, ComputeSmdStress)
 
 #else
 
@@ -38,10 +38,10 @@ using namespace Eigen;
 
 namespace LAMMPS_NS {
 
-class ComputeSMDTLSPHStress : public Compute {
+class ComputeSmdStress : public Compute {
  public:
-  ComputeSMDTLSPHStress(class LAMMPS *, int, char **);
-  ~ComputeSMDTLSPHStress();
+  ComputeSmdStress(class LAMMPS *, int, char **);
+  ~ComputeSmdStress();
   void init();
   void compute_peratom();
   double memory_usage();

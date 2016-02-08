@@ -5,6 +5,9 @@
  *      Author: ganzenmueller
  */
 
+#ifndef SMDMATDB_H_
+#define SMDMATDB_H_
+
 #include "SimpleIni.h"
 #include <map>
 #include <string>
@@ -12,9 +15,6 @@
 #include <Eigen/Eigen>
 #include "material_models/TestMat.h"
 // test 2
-
-#ifndef SMDMATDB_H_
-#define SMDMATDB_H_
 
 /*
  * Guide to adding new materials:
@@ -27,6 +27,7 @@
  * 4) Add the new material model to the ComputePressure, ComputeDevStressIncrement or ComputeViscousStress methods
  * 5) Call the PrintParameters method of the newly defined class in the PrintData method defined here.
  */
+namespace smdmatdb {
 class SmdMatDB {
 public:
 	SmdMatDB();
@@ -81,7 +82,7 @@ public:
 		std::string strengthName, eosName, viscName;
 
 	};
-	gProp *gProps;
+	 gProp *gProps;
 
 	class EosLinear { // this is EosId 1
 	public:
@@ -100,16 +101,16 @@ public:
 		}
 
 	};
-	std::vector<EosLinear> eosLinear_vec; // holds all linear eos models in this simulation
+	 std::vector<EosLinear> eosLinear_vec; // holds all linear eos models in this simulation
 
 	class EosTait { // this is EosId 2
 		/**
-		    a more detail class description :
-		    \author Me
-		    \date 29/07/2005
+		 a more detail class description :
+		 \author Me
+		 \date 29/07/2005
 
-		    This is the isothermal Murnaghan-Tait Equation-of-State
-		*/
+		 This is the isothermal Murnaghan-Tait Equation-of-State
+		 */
 	public:
 		double K;
 		int n;
@@ -130,7 +131,7 @@ public:
 			printf("... exponent is %d\n", n);
 		}
 	};
-	std::vector<EosTait> eosTait_vec; // holds all linear eos models in this simulation
+	 std::vector<EosTait> eosTait_vec; // holds all linear eos models in this simulation
 
 	class StrengthLinear {
 	public:
@@ -154,7 +155,7 @@ public:
 			printf("... Poisson ratio %f\n", nu);
 		}
 	};
-	std::vector<StrengthLinear> strengthLinear_vec; // holds all linear strength models in this simulation
+	 std::vector<StrengthLinear> strengthLinear_vec; // holds all linear strength models in this simulation
 
 	class StrengthSimplePlasticity {
 	public:
@@ -219,14 +220,12 @@ public:
 				//Eigen::Matrix3d plasticStrainIncrement = deviatoricStrainIncrement - elasticStrainIncrement;
 				//double ratio = plastic_strain_increment / plasticStrainIncrement.norm();
 				//printf("ratio p1/p2 = %f\n", ratio);
-
 				/*
 				 * plastic heating: plastic strain increment x yield stress
 				 */
 				//double heat_increment = plasticStrainIncrement.norm() * yieldStress;
 				//double heat_increment = plastic_strain_increment * yieldStress;
 				//printf("heat increment (sans volume term) is %f\n", heat_increment);
-
 
 				sigmaTrial_dev = oldStressDeviator + deviatoricStressIncrement;
 				//printf("CHECK, J2=%f should be smaller than yield stress\n", sqrt(3. / 2.) * sigmaTrial_dev.norm());
@@ -244,7 +243,7 @@ public:
 			printf("... yield stress %f\n", yieldStress);
 		}
 	};
-	std::vector<StrengthSimplePlasticity> strengthSimplePlasticity_vec; // holds all linear strength models in this simulation
+	 std::vector<StrengthSimplePlasticity> strengthSimplePlasticity_vec; // holds all linear strength models in this simulation
 
 	class ViscosityNewton {
 	public:
@@ -264,14 +263,16 @@ public:
 			printf("... dynamic viscosity %f\n", eta);
 		}
 	};
-	std::vector<ViscosityNewton> viscNewton_vec; // holds all Newton viscosity models in this simulation
+	 std::vector<ViscosityNewton> viscNewton_vec; // holds all Newton viscosity models in this simulation
+	 std::vector<StrengthGCG> strengthGCG_vec; // holds all linear strength models in this simulation
 
-
-	std::vector<StrengthGCG> strengthGCG_vec; // holds all linear strength models in this simulation
-
-private:
-	int ntypes;
+	 int ntypes;
+	 bool initialized;
 
 };
+
+static SmdMatDB matDB;
+}
+
 
 #endif /* SMDMATDB_H_ */

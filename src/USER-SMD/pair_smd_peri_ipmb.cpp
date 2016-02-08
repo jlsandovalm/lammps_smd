@@ -45,8 +45,10 @@
 #include "memory.h"
 #include "error.h"
 #include "lattice.h"
+#include "SmdMatDB.h"
 
 using namespace LAMMPS_NS;
+using namespace smdmatdb;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define VFRAC_SCALE false
@@ -80,6 +82,15 @@ PairPeriGCG::PairPeriGCG(LAMMPS *lmp) :
 	nBroken = 0;
 
 	first = true;
+
+	int retcode = matDB.ReadMaterials(atom->ntypes);
+	if (retcode < 0) {
+		error->one(FLERR, "failed to read material database");
+	}
+
+	printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+	matDB.PrintData(1);
+	printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
 }
 
 /* ---------------------------------------------------------------------- */

@@ -23,7 +23,7 @@
  ------------------------------------------------------------------------- */
 
 #include "string.h"
-#include "compute_smd_ulsph_stress.h"
+#include "compute_smd_stress.h"
 #include "atom.h"
 #include "update.h"
 #include "modify.h"
@@ -38,10 +38,10 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-ComputeSMDULSPHStress::ComputeSMDULSPHStress(LAMMPS *lmp, int narg, char **arg) :
+ComputeSmdStress::ComputeSmdStress(LAMMPS *lmp, int narg, char **arg) :
 		Compute(lmp, narg, arg) {
 	if (narg != 3)
-		error->all(FLERR, "Illegal compute smd/ulsph_stress command");
+		error->all(FLERR, "Illegal compute smd/stress command");
 
 	peratom_flag = 1;
 	size_peratom_cols = 7;
@@ -52,28 +52,27 @@ ComputeSMDULSPHStress::ComputeSMDULSPHStress(LAMMPS *lmp, int narg, char **arg) 
 
 /* ---------------------------------------------------------------------- */
 
-ComputeSMDULSPHStress::~ComputeSMDULSPHStress() {
+ComputeSmdStress::~ComputeSmdStress() {
 	memory->sfree(stress_array);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeSMDULSPHStress::init() {
+void ComputeSmdStress::init() {
 
 	int count = 0;
 	for (int i = 0; i < modify->ncompute; i++)
-		if (strcmp(modify->compute[i]->style, "smd/ulsph_stress") == 0)
+		if (strcmp(modify->compute[i]->style, "smd/stress") == 0)
 			count++;
 	if (count > 1 && comm->me == 0)
-		error->warning(FLERR, "More than one compute smd/ulsph_stress");
+		error->warning(FLERR, "More than one compute smd/stress");
 }
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeSMDULSPHStress::compute_peratom() {
+void ComputeSmdStress::compute_peratom() {
 	invoked_peratom = update->ntimestep;
-	int *mask = atom->mask;
-	Matrix3d stress_deviator;
+	Matrix3d stress, stress_deviator;
 	double von_mises_stress;
 
 	// grow vector array if necessary
@@ -85,24 +84,64 @@ void ComputeSMDULSPHStress::compute_peratom() {
 		array_atom = stress_array;
 	}
 
+	// access all stress arrays from the various SMD methods.
+	// output stress = sum of stresses
+
+	bool tlsph, ulsph, mpm;
+	tlsph = ulsph = mpm = false;
 	int itmp = 0;
-	Matrix3d *T = (Matrix3d *) force->pair->extract("smd/ulsph/stressTensor_ptr", itmp);
-	if (T == NULL) {
-		error->all(FLERR, "compute smd/ulsph_stress could not access stress tensors. Are the matching pair styles present?");
+
+	Matrix3d *T_TLSPH = (Matrix3d *) force->pair->extract("smd/tlsph/stressTensor_ptr", itmp);
+	if (T_TLSPH != NULL) {
+		tlsph = true;
 	}
+
+	Matrix3d *T_ULSPH = (Matrix3d *) force->pair->extract("smd/ulsph/stressTensor_ptr", itmp);
+	if (T_ULSPH != NULL) {
+		ulsph = true;
+	}
+
+	Matrix3d *T_MPM = (Matrix3d *) force->pair->extract("smd/mpm/stressTensor_ptr", itmp);
+	if (T_MPM != NULL) {
+		mpm = true;
+	}
+
+	//std::cout << tlsph << ulsph << mpm;
+	if (!((tlsph) || (ulsph) || (mpm))) {
+		error->all(FLERR,
+				"compute smd/stress could not access any stress tensors. Are the matching pair styles (ulsph, tlsph, mpm) present?");
+	}
+
 	int nlocal = atom->nlocal;
+	int *mask = atom->mask;
 
 	for (int i = 0; i < nlocal; i++) {
-
 		if (mask[i] & groupbit) {
-			stress_deviator = Deviator(T[i]);
+
+			stress.setZero();
+
+			if (tlsph) {
+				stress += T_TLSPH[i];
+			}
+
+			if (ulsph) {
+				stress += T_ULSPH[i];
+			}
+
+			if (mpm) {
+				stress += T_MPM[i];
+			}
+
+			// compute von mises stress
+			stress_deviator = Deviator(stress);
 			von_mises_stress = sqrt(3. / 2.) * stress_deviator.norm();
-			stress_array[i][0] = T[i](0, 0); // xx
-			stress_array[i][1] = T[i](1, 1); // yy
-			stress_array[i][2] = T[i](2, 2); // zz
-			stress_array[i][3] = T[i](0, 1); // xy
-			stress_array[i][4] = T[i](0, 2); // xz
-			stress_array[i][5] = T[i](1, 2); // yz
+
+			stress_array[i][0] = stress(0, 0);
+			stress_array[i][1] = stress(1, 1);
+			stress_array[i][2] = stress(2, 2);
+			stress_array[i][3] = stress(0, 1);
+			stress_array[i][4] = stress(0, 2);
+			stress_array[i][5] = stress(1, 2);
 			stress_array[i][6] = von_mises_stress;
 
 		} else {
@@ -117,7 +156,7 @@ void ComputeSMDULSPHStress::compute_peratom() {
  memory usage of local atom-based array
  ------------------------------------------------------------------------- */
 
-double ComputeSMDULSPHStress::memory_usage() {
+double ComputeSmdStress::memory_usage() {
 	double bytes = size_peratom_cols * nmax * sizeof(double);
 	return bytes;
 }
@@ -125,7 +164,7 @@ double ComputeSMDULSPHStress::memory_usage() {
 /*
  * deviator of a tensor
  */
-Matrix3d ComputeSMDULSPHStress::Deviator(Matrix3d M) {
+Matrix3d ComputeSmdStress::Deviator(Matrix3d M) {
 	Matrix3d eye;
 	eye.setIdentity();
 	eye *= M.trace() / 3.0;

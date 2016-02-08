@@ -43,7 +43,7 @@
 #include "region.h"
 #include <stdio.h>
 #include <iostream>
-#include "smd_material_models.h"
+//#include "smd_material_models.h"
 #include "smd_math.h"
 #include "smd_kernels.h"
 #include <unsupported/Eigen/MatrixFunctions>
@@ -53,6 +53,7 @@ using namespace SMD_Kernels;
 using namespace std;
 using namespace LAMMPS_NS;
 using namespace SMD_Math;
+using namespace smdmatdb;
 
 #include <Eigen/SVD>
 #include <Eigen/Eigen>
@@ -1687,7 +1688,7 @@ void PairSmdMpmLin::unpack_forward_comm(int n, int first, double *buf) {
  */
 
 void *PairSmdMpmLin::extract(const char *str, int &i) {
-	if (strcmp(str, "smd/ulsph/stressTensor_ptr") == 0) {
+	if (strcmp(str, "smd/mpm/stressTensor_ptr") == 0) {
 		return (void *) stressTensor;
 	} else if (strcmp(str, "smd/ulsph/velocityGradient_ptr") == 0) {
 		return (void *) L;
