@@ -33,7 +33,6 @@
 #include "error.h"
 #include "SmdMatDB.h"
 
-using namespace smdmatdb;
 using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
@@ -51,7 +50,7 @@ ComputeSmdEnergy::ComputeSmdEnergy(LAMMPS *lmp, int narg, char **arg) :
 	nmax = 0;
 	energy_array = NULL;
 
-	int retcode = matDB.ReadMaterials(atom->ntypes);
+	int retcode = SmdMatDB::instance().ReadMaterials(atom->ntypes);
 	if (retcode < 0) {
 		error->one(FLERR, "failed to read material database");
 	}
@@ -97,7 +96,7 @@ void ComputeSmdEnergy::compute_peratom() {
 	int nlocal = atom->nlocal;
 	int itype;
 
-	printf("init? %d\n", matDB.initialized);
+	//printf("init? %d\n", SmdMatDB::instance().initialized);
 
 	for (int i = 0; i < nlocal; i++) {
 		if (mask[i] & groupbit) {
@@ -105,8 +104,8 @@ void ComputeSmdEnergy::compute_peratom() {
 			energy_array[i][0] = e[i];
 			energy_array[i][1] = heat[i];
 			//printf("itype = %d\n", itype);
-			if (matDB.initialized) {
-				energy_array[i][2] = heat[i] / (rmass[i] * matDB.gProps[itype].cp);
+			if (SmdMatDB::instance().initialized) {
+				energy_array[i][2] = heat[i] / (rmass[i] * SmdMatDB::instance().gProps[itype].cp);
 			} else {
 				energy_array[i][2] = 0.0;
 			}

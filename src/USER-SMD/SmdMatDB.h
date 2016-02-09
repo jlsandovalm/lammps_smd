@@ -13,25 +13,21 @@
 #include <string>
 #include <vector>
 #include <Eigen/Eigen>
-#include "material_models/TestMat.h"
-// test 2
 
 /*
- * Guide to adding new materials:
- * (roadmap, not fully implemented yet)
- *
- * 1) implement a new EOS, Strength, or viscosity class in lib/smd/material_models
- *    solely as a c++ header file which must be included here.
- * 2) all a std::vector here which holds all instances of the new material model
- * 3) Call the ReadParamters method of the newly defined class either in ReadEoss, ReadStrengths, or ReadViscosities
- * 4) Add the new material model to the ComputePressure, ComputeDevStressIncrement or ComputeViscousStress methods
- * 5) Call the PrintParameters method of the newly defined class in the PrintData method defined here.
+ * Implemented as Normal (Stack) Singleton, see
+ * https://de.wikibooks.org/wiki/C%2B%2B-Programmierung:_Entwurfsmuster:_Singleton
  */
-namespace smdmatdb {
 class SmdMatDB {
 public:
-	SmdMatDB();
-	virtual ~SmdMatDB();
+
+	static SmdMatDB& instance() {
+		static SmdMatDB _instance;
+		return _instance;
+	}
+	~SmdMatDB() {
+	}
+
 	int ReadMaterials(const int ntypes);
 	int ReadSectionGeneral(CSimpleIni &ini, const int itype);
 	void ComputePressure(const double mu, const double temperature, const int itype, double &pressure, double &K_eff);
@@ -82,7 +78,7 @@ public:
 		std::string strengthName, eosName, viscName;
 
 	};
-	 gProp *gProps;
+	gProp *gProps;
 
 	class EosLinear { // this is EosId 1
 	public:
@@ -101,7 +97,7 @@ public:
 		}
 
 	};
-	 std::vector<EosLinear> eosLinear_vec; // holds all linear eos models in this simulation
+	std::vector<EosLinear> eosLinear_vec; // holds all linear eos models in this simulation
 
 	class EosTait { // this is EosId 2
 		/**
@@ -131,7 +127,7 @@ public:
 			printf("... exponent is %d\n", n);
 		}
 	};
-	 std::vector<EosTait> eosTait_vec; // holds all linear eos models in this simulation
+	std::vector<EosTait> eosTait_vec; // holds all linear eos models in this simulation
 
 	class StrengthLinear {
 	public:
@@ -155,7 +151,7 @@ public:
 			printf("... Poisson ratio %f\n", nu);
 		}
 	};
-	 std::vector<StrengthLinear> strengthLinear_vec; // holds all linear strength models in this simulation
+	std::vector<StrengthLinear> strengthLinear_vec; // holds all linear strength models in this simulation
 
 	class StrengthSimplePlasticity {
 	public:
@@ -226,7 +222,6 @@ public:
 				//double heat_increment = plasticStrainIncrement.norm() * yieldStress;
 				//double heat_increment = plastic_strain_increment * yieldStress;
 				//printf("heat increment (sans volume term) is %f\n", heat_increment);
-
 				sigmaTrial_dev = oldStressDeviator + deviatoricStressIncrement;
 				//printf("CHECK, J2=%f should be smaller than yield stress\n", sqrt(3. / 2.) * sigmaTrial_dev.norm());
 
@@ -243,7 +238,7 @@ public:
 			printf("... yield stress %f\n", yieldStress);
 		}
 	};
-	 std::vector<StrengthSimplePlasticity> strengthSimplePlasticity_vec; // holds all linear strength models in this simulation
+	std::vector<StrengthSimplePlasticity> strengthSimplePlasticity_vec; // holds all linear strength models in this simulation
 
 	class ViscosityNewton {
 	public:
@@ -263,16 +258,20 @@ public:
 			printf("... dynamic viscosity %f\n", eta);
 		}
 	};
-	 std::vector<ViscosityNewton> viscNewton_vec; // holds all Newton viscosity models in this simulation
-	 std::vector<StrengthGCG> strengthGCG_vec; // holds all linear strength models in this simulation
+	std::vector<ViscosityNewton> viscNewton_vec; // holds all Newton viscosity models in this simulation
 
-	 int ntypes;
-	 bool initialized;
+	int ntypes;
+	bool initialized;
+
+private:
+	SmdMatDB() {
+		initialized = false;
+		gProps = NULL;
+		ntypes = 0;
+	}
+	SmdMatDB(const SmdMatDB&);
+	SmdMatDB & operator =(const SmdMatDB &);
 
 };
-
-static SmdMatDB matDB;
-}
-
 
 #endif /* SMDMATDB_H_ */

@@ -52,7 +52,6 @@
 #include "smd_kernels.h"
 #include "smd_math.h"
 #include "SmdMatDB.h"
-using namespace smdmatdb;
 
 using namespace SMD_Kernels;
 using namespace Eigen;
@@ -97,7 +96,7 @@ PairTlsph::PairTlsph(LAMMPS *lmp) :
 
 	cut_comm = MAX(neighbor->cutneighmax, comm->cutghostuser); // cutoff radius within which ghost atoms are communicated.
 
-	int retcode = matDB.ReadMaterials(atom->ntypes);
+	int retcode = 0; //SmdMatDB::instance()->ReadMaterials(atom->ntypes);
 	if (retcode < 0) {
 		error->one(FLERR, "failed to read material database");
 	}

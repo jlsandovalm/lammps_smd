@@ -48,7 +48,6 @@
 #include "SmdMatDB.h"
 
 using namespace LAMMPS_NS;
-using namespace smdmatdb;
 #define FORMAT1 "%60s : %g\n"
 #define FORMAT2 "\n.............................. %s \n"
 #define VFRAC_SCALE false
@@ -83,14 +82,14 @@ PairPeriGCG::PairPeriGCG(LAMMPS *lmp) :
 
 	first = true;
 
-	int retcode = matDB.ReadMaterials(atom->ntypes);
+	int retcode = SmdMatDB::instance().ReadMaterials(atom->ntypes);
 	if (retcode < 0) {
 		error->one(FLERR, "failed to read material database");
 	}
 
-	printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	matDB.PrintData(1);
-	printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+//	printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+//	SmdMatDB::instance().PrintData(1);
+//	printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -261,8 +260,8 @@ void PairPeriGCG::compute(int eflag, int vflag) {
 
 	/* ----------------------- PERIDYNAMIC BOND FORCES --------------------- */
 	stable_time_increment = 9999999999.0;
-	double lc = domain->lattice->xlattice;
-	double half_lc = 0.5 * lc;
+	//double lc = domain->lattice->xlattice;
+	//double half_lc = 0.5 * lc;
 	double vfrac_scale = 1.0;
 	int periodic = (domain->xperiodic || domain->yperiodic || domain->zperiodic);
 

@@ -39,7 +39,7 @@ atom_style      smd
 atom_modify	map array
 comm_modify     vel yes # mandatory for SMD
 comm_style      tiled
-neigh_modify    every 10 delay 0 check yes
+neigh_modify    every 10 delay 0 check yes exclude type 1 1
 newton          off # mandatory for SMD
 
 ####################################################################################################
@@ -64,7 +64,7 @@ group           peri_particles type 2
 # DISCRETIZATION PARAMETERS
 ####################################################################################################
 variable 	vol_one equal ${l0}^3 # volume of one particle -- assuming sc lattice
-variable 	skin equal 0.2*${l0} # Verlet list range
+variable 	skin equal 1.0*${l0} # Verlet list range
 neighbor        ${skin} bin
 variable        cr equal ${l0}/2 # "contact" radius used by Hertzian potential
 set             group all smd_contact_radius ${cr}
@@ -126,7 +126,7 @@ compute         S mpm_particles smd/stress # S[7] is von Mises stress
 compute         smd_energy all smd/energy # elastic continuum energy 
 variable        eela atom c_smd_energy[1]
 variable        heat atom c_smd_energy[2]
-variable        temp atom c_smd_energy[2]
+variable        temp atom c_smd_energy[3]
 
 dump 		dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz fx fy fz &
 			c_contact_radius proc c_P c_S[7] v_eela v_heat v_temp

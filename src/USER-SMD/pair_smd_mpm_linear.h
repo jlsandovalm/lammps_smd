@@ -147,7 +147,6 @@ private:
 	bool noslip_symmetry_plane_y_plus_exists, noslip_symmetry_plane_y_minus_exists;
 	double noslip_symmetry_plane_y_plus_location, noslip_symmetry_plane_y_minus_location;
 
-	//SmdMatDB matDB;
 	bool corotated;
 	bool true_deformation;
 	int iproc;

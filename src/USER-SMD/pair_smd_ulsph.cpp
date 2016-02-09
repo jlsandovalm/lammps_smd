@@ -54,7 +54,6 @@ using namespace SMD_Math;
 #include <Eigen/SVD>
 #include <Eigen/Eigen>
 using namespace Eigen;
-using namespace smdmatdb;
 
 #define ARTIFICIAL_STRESS false
 #define FORMAT1 "%60s : %g\n"
@@ -85,7 +84,7 @@ PairULSPH::PairULSPH(LAMMPS *lmp) :
 	comm_forward = 8; // this pair style communicates 8 doubles to ghost atoms
 	updateFlag = 0;
 
-	int retcode = matDB.ReadMaterials(atom->ntypes);
+	int retcode = 0; //SmdMatDB::instance()->ReadMaterials(atom->ntypes);
 	if (retcode < 0) {
 		error->one(FLERR, "failed to read material database");
 	}

@@ -53,7 +53,6 @@ using namespace SMD_Kernels;
 using namespace std;
 using namespace LAMMPS_NS;
 using namespace SMD_Math;
-using namespace smdmatdb;
 
 #include <Eigen/SVD>
 #include <Eigen/Eigen>
@@ -94,7 +93,7 @@ PairSmdMpmLin::PairSmdMpmLin(LAMMPS *lmp) :
 	symmetry_plane_z_plus_exists = symmetry_plane_z_minus_exists = false;
 	noslip_symmetry_plane_y_plus_exists = noslip_symmetry_plane_y_minus_exists = false;
 
-	int retcode = matDB.ReadMaterials(atom->ntypes);
+	int retcode = SmdMatDB::instance().ReadMaterials(atom->ntypes);
 	if (retcode < 0) {
 		error->one(FLERR, "failed to read material database");
 	}
@@ -602,7 +601,7 @@ void PairSmdMpmLin::ComputeVelocityGradient() {
 				 * self-contribution due to expansion
 				 */
 				double pressure = -stressTensor[i].trace() / 3.0;
-				double c0 = pressure / matDB.gProps[itype].rho0;
+				double c0 = pressure / SmdMatDB::instance().gProps[itype].rho0;
 				double expansionrate = 1.0e-1 * c0 * icellsize;
 				//printf("self expansion rate is %g\n", expansionrate);
 				L[i](0, 0) = expansionrate;
@@ -1081,16 +1080,16 @@ void PairSmdMpmLin::UpdateStress() {
 			 * compute pressure
 			 */
 
-			matDB.ComputePressure(mu, temperature, itype, newPressure, K_eff);
+			SmdMatDB::instance().ComputePressure(mu, temperature, itype, newPressure, K_eff);
 			//if (fabs(mu) > 1.0e-3) printf("j=%g, , mu=%g, p=%g\n", J[i], mu, newPressure);
 
 			/*
 			 * ******************************* STRENGTH MODELS ************************************************
 			 */
 			newStressDeviator.setZero();
-			if (matDB.gProps[itype].strengthType != 0) {
+			if (SmdMatDB::instance().gProps[itype].strengthType != 0) {
 
-				matDB.ComputeDevStressIncrement(devStrainIncrement, itype, oldStressDeviator, plasticStrainIncrement,
+				SmdMatDB::instance().ComputeDevStressIncrement(devStrainIncrement, itype, oldStressDeviator, plasticStrainIncrement,
 						stressIncrement, plastic_work);
 				if (plastic_work < 0.0) {
 					printf("plastic work = %f\n", plastic_work);
@@ -1133,10 +1132,10 @@ void PairSmdMpmLin::UpdateStress() {
 			 * add viscous stress
 			 */
 
-			if (matDB.gProps[itype].viscType != 0) {
+			if (SmdMatDB::instance().gProps[itype].viscType != 0) {
 
 				Matrix3d viscousStress;
-				matDB.ComputeViscousStress(devStrainRate, itype, viscousStress);
+				SmdMatDB::instance().ComputeViscousStress(devStrainRate, itype, viscousStress);
 
 				// estimate effective shear modulus for time step stability
 				devStressIncrement = oldStressDeviator - viscousStress;
@@ -1172,11 +1171,11 @@ void PairSmdMpmLin::UpdateStress() {
 				/*
 				 * stable timestep based on viscosity
 				 */
-				//if (matDB.gProps[itype].viscType != 0) {
+				//if (SmdMatDB::instance().gProps[itype].viscType != 0) {
 //					dtCFL = MIN(cellsize * cellsize * rho / (effectiveViscosity), dtCFL);
 				//}
 			} else {
-				p_wave_speed = matDB.gProps[itype].c0;
+				p_wave_speed = SmdMatDB::instance().gProps[itype].c0;
 				dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
 			}
 
@@ -1202,7 +1201,7 @@ void PairSmdMpmLin::UpdateStress() {
 	int check_flag = 0;
 	for (itype = 1; itype <= atom->ntypes; itype++) {
 		if (setflag[itype][itype] == 1) {
-			p_wave_speed = matDB.gProps[itype].c0;
+			p_wave_speed = SmdMatDB::instance().gProps[itype].c0;
 			dtCFL = MIN(cellsize / p_wave_speed, dtCFL);
 			check_flag = 1;
 		}
@@ -1476,7 +1475,7 @@ void PairSmdMpmLin::coeff(int narg, char **arg) {
 		if (comm->me == 0) {
 			printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 			printf("...SMD / MPM PROPERTIES OF PARTICLE TYPE %d\n\n", itype);
-			matDB.PrintData(itype);
+			SmdMatDB::instance().PrintData(itype);
 		}
 
 		/*
@@ -1731,8 +1730,8 @@ double PairSmdMpmLin::effective_shear_modulus(const Matrix3d devStrainIncrement,
 	if (devStrainSum > 1.0e-12) {
 		G_eff = 0.5 * sqrt(devStressSum / devStrainSum);
 	} else {
-		if (matDB.gProps[itype].strengthType != 0) {
-			G_eff = matDB.gProps[itype].G0;
+		if (SmdMatDB::instance().gProps[itype].strengthType != 0) {
+			G_eff = SmdMatDB::instance().gProps[itype].G0;
 		} else {
 			G_eff = 0.0;
 		}

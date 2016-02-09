@@ -22,24 +22,15 @@
 
 using namespace std;
 using namespace Eigen;
-using namespace smdmatdb;
-
-SmdMatDB::SmdMatDB() {
-	smdmatdb::SmdMatDB::initialized = false;
-}
-
-SmdMatDB::~SmdMatDB() {
-	delete[] gProps;
-}
 
 int SmdMatDB::ReadMaterials(const int ntypes__) {
 
 	if (initialized) { // return if some pair style has already called this
-		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
-		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
-		printf("alrady initialized\n");
-		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
-		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+//		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+//		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+//		printf("SMD Mat DB already initialized\n");
+//		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
+//		printf("\n&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n");
 		return 0;
 	}
 
