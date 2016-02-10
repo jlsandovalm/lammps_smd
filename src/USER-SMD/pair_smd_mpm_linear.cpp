@@ -1002,6 +1002,12 @@ void PairSmdMpmLin::USF() {
 void PairSmdMpmLin::MUSL() {
 	CreateGrid();
 
+	timeone_Comm -= MPI_Wtime();
+	GetStress();
+	comm_mode = STAGE1;
+	comm->forward_comm_pair(this); // need to have stress tensor and other forces on ghosts
+	timeone_Comm += MPI_Wtime();   // this needs to come BEFORE PointsToGrid!
+
 	timeone_PointstoGrid -= MPI_Wtime();
 	PointsToGrid();
 	timeone_PointstoGrid += MPI_Wtime();
@@ -1011,12 +1017,6 @@ void PairSmdMpmLin::MUSL() {
 	timeone_SymmetryBC += MPI_Wtime();
 
 	ComputeHeatGradientOnGrid();
-
-	timeone_Comm -= MPI_Wtime();
-	GetStress();
-	comm_mode = STAGE1;
-	comm->forward_comm_pair(this); // need to have stress tensor and other forces on ghosts
-	timeone_Comm += MPI_Wtime();
 
 	timeone_GridForces -= MPI_Wtime();
 	ComputeGridForces();
