@@ -44,7 +44,7 @@ set             group all smd_mass_density ${rho}
 set             group all diameter ${cr}
 set             group all smd_contact_radius ${cr}
 
-pair_style      hybrid/overlay  smd/hertz 1.0 smd/mpm_linear ${mpm_cellsize} FLIP 1.0 2d corotated
+pair_style      hybrid/overlay  smd/hertz 1.0 smd/mpm_linear ${mpm_cellsize} FLIP 1.0 2d sym_x_+ 0 sym_x_- 0.6 sym_y_+ 0 sym_y_- 0.6
 #                           density speed_of_sound artif.visc.  heat.capacity hourglass
 pair_coeff      1 1 smd/mpm_linear *COMMON ${rho}  ${c0}          ${art_visc}  0             ${hg} &
 		*EOS_LINEAR &
@@ -58,9 +58,9 @@ pair_coeff      1 2 smd/hertz 0
 
 compute         rho all smd/rho
 compute         contact_radius all smd/contact_radius
-compute         eint all smd/internal_energy
-compute         alleint all reduce sum c_eint
-compute         S all smd/ulsph_stress # stress tensor: xx, yy, zz, xy, xz, yz components
+compute         eint all smd/energy
+compute         alleint all reduce sum c_eint[1]
+compute         S all smd/stress # stress tensor: xx, yy, zz, xy, xz, yz components
 compute         D all smd/ulsph_strain_rate
 compute         vol all smd/volume
 variable        etot equal ke+c_alleint+pe
@@ -78,7 +78,7 @@ fix             dtfix all smd/adjust_dt 0.3
 
 variable        dumpFreq equal 10
 dump            dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z &
-                fx fy fz vx vy vz c_eint &
+                fx fy fz vx vy vz c_eint[1] &
                 c_contact_radius mol c_rho c_S[1] c_S[2] c_S[4] radius &
                 c_D[1] c_D[2] c_D[4] 
 

@@ -263,7 +263,11 @@ void PairSmdMpmLin::CreateGrid() {
 	grid_ny = (maxiy - miniy) + 4;
 	grid_nz = (maxiz - miniz) + 4;
 
-	grid_nz = MAX(grid_nz, 4);
+	if (flag3d) {
+		grid_nz = MAX(grid_nz, 4);
+	} else {
+		grid_nz = 1;
+	}
 
 	// allocate grid storage
 
@@ -287,8 +291,8 @@ void PairSmdMpmLin::PointsToGrid() {
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
 	int nall = nlocal + atom->nghost;
-	int ref_node;
-	double wfx[4], wfy[4], wfz[4];
+	int ref_node, node_index;
+	double wfx[4], wfy[4], wfz[4], wf;
 	Vector3d vel_particle, otherForces;
 
 	for (int icell = 0; icell < Ncells; icell++) {
@@ -316,15 +320,35 @@ void PairSmdMpmLin::PointsToGrid() {
 			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
 
 			// loop over all cell neighbors for this particle
-			for (int ix = 0; ix < 4; ix++) {
-				for (int iy = 0; iy < 4; iy++) {
-					for (int iz = 0; iz < 4; iz++) {
+			if (flag3d) {
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+						for (int iz = 0; iz < 4; iz++) {
 
-						double wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
-						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+							wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
+							node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+
+							if ((node_index < 0) || (node_index >= Ncells)) { // memory access error check
+								printf("PointsToGrid:: node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
+								exit(1);
+							}
+
+							lgridnodes[node_index].v += wf * vel_particle;
+							lgridnodes[node_index].fbody += wf * otherForces;
+							lgridnodes[node_index].mass += wf * particle_mass;
+							lgridnodes[node_index].heat += wf * particle_heat;
+						}
+					}
+				}
+			} else {
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+
+						wf = wfx[ix] * wfy[iy]; // total weight function
+						node_index = ref_node + ix + iy * grid_nx;
 
 						if ((node_index < 0) || (node_index >= Ncells)) { // memory access error check
-							printf("node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
+							printf("PointsToGrid:: node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
 							exit(1);
 						}
 
@@ -356,8 +380,9 @@ void PairSmdMpmLin::VelocitiesToGrid() {
 	int *type = atom->type;
 	int nlocal = atom->nlocal;
 	int nall = nlocal + atom->nghost;
-	int ref_node;
-	double wfx[4], wfy[4], wfz[4];
+	int ref_node, node_index;
+	double wfx[4], wfy[4], wfz[4], wf;
+	char msg[128];
 	Vector3d vel_particle;
 
 	for (int icell = 0; icell < Ncells; icell++) {
@@ -387,16 +412,39 @@ void PairSmdMpmLin::VelocitiesToGrid() {
 			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
 
 			// loop over all cell neighbors for this particle
-			for (int ix = 0; ix < 4; ix++) {
-				for (int iy = 0; iy < 4; iy++) {
-					for (int iz = 0; iz < 4; iz++) {
+			if (flag3d) {
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+						for (int iz = 0; iz < 4; iz++) {
 
-						double wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
-						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+							wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
+							node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+
+							if ((node_index < 0) || (node_index >= Ncells)) { // memory access error check
+								sprintf(msg, "node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
+								error->one(FLERR, msg);
+								//printf("node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
+								//exit(1);
+							}
+
+							lgridnodes[node_index].v += wf * vel_particle;
+							lgridnodes[node_index].mass += wf * particle_mass;
+							lgridnodes[node_index].count++;
+						}
+					}
+				}
+			} else {
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+
+						wf = wfx[ix] * wfy[iy]; // total weight function
+						node_index = ref_node + ix + iy * grid_nx;
 
 						if ((node_index < 0) || (node_index >= Ncells)) { // memory access error check
-							printf("node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
-							exit(1);
+							sprintf(msg, "node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
+							error->one(FLERR, msg);
+							//printf("node index %d outside allowed range %d to %d\n", node_index, 0, Ncells);
+							//exit(1);
 						}
 
 						lgridnodes[node_index].v += wf * vel_particle;
@@ -409,7 +457,7 @@ void PairSmdMpmLin::VelocitiesToGrid() {
 		} // end if setflag
 	} // end loop over nall
 
-	// normalize all grid cells
+// normalize all grid cells
 	for (int icell = 0; icell < Ncells; icell++) {
 		if (lgridnodes[icell].mass > MASS_CUTOFF) {
 			lgridnodes[icell].imass = 1.0 / lgridnodes[icell].mass;
@@ -421,18 +469,23 @@ void PairSmdMpmLin::VelocitiesToGrid() {
 
 void PairSmdMpmLin::PreComputeGridWeights(const int i, int &ref_node, double *wfx, double *wfy, double *wfz) {
 	double **x = atom->x;
+	int ref_ix, ref_iy, ref_iz;
 
 	double ssx = icellsize * x[i][0] - static_cast<double>(minix); // shifted position in grid coords
 	double ssy = icellsize * x[i][1] - static_cast<double>(miniy); // shifted position in grid coords
 	double ssz = icellsize * x[i][2] - static_cast<double>(miniz); // shifted position in grid coords
 
-	int ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
-	int ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
-	int ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
+	ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
+	if (flag3d) {
+		ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	} else {
+		ref_iz = 0;
+	}
 	ref_node = ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
 
 	if ((ref_node < 0) || (ref_node > Ncells - 1)) { // memory access error check
-		printf("ref node %d outside allowed range %d to %d\n", ref_node, 0, Ncells);
+		printf("PreComputeGridWeights: ref node %d outside allowed range %d to %d\n", ref_node, 0, Ncells);
 		printf("ref_ix=%d, ref_iy=%d, ref_iz=%d\n", ref_ix, ref_iy, ref_iz);
 		printf("ssx = %f, ssy=%f, ssz=%f\n", ssx, ssy, ssz);
 		printf("x-minx=%f, y-miny=%f, z-minz=%f\n", (x[i][0] - minx), (x[i][1] - miny), (x[i][2] - minz));
@@ -445,8 +498,12 @@ void PairSmdMpmLin::PreComputeGridWeights(const int i, int &ref_node, double *wf
 		wfx[ioff] = DisneyKernel(dist);
 		dist = fabs(ref_iy + ioff - ssy); // this is the x distance in world coords
 		wfy[ioff] = DisneyKernel(dist);
-		dist = fabs(ref_iz + ioff - ssz); // this is the x distance in world coords
-		wfz[ioff] = DisneyKernel(dist);
+		if (flag3d) {
+			dist = fabs(ref_iz + ioff - ssz); // this is the x distance in world coords
+			wfz[ioff] = DisneyKernel(dist);
+		} else {
+			wfz[ioff] = 1.0;
+		}
 	}
 
 }
@@ -454,32 +511,39 @@ void PairSmdMpmLin::PreComputeGridWeights(const int i, int &ref_node, double *wf
 void PairSmdMpmLin::PreComputeGridWeightsAndDerivatives(const int i, int &ref_node, double *wfx, double *wfy, double *wfz,
 		double *wfdx, double *wfdy, double *wfdz) {
 	double **x = atom->x;
+	int ref_ix, ref_iy, ref_iz;
 
 	double ssx = icellsize * x[i][0] - static_cast<double>(minix); // shifted position in grid coords
 	double ssy = icellsize * x[i][1] - static_cast<double>(miniy); // shifted position in grid coords
 	double ssz = icellsize * x[i][2] - static_cast<double>(miniz); // shifted position in grid coords
 
-	int ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
-	int ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
-	int ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	ref_ix = (int) ssx - 1; // this is the x location of the reference node in cell space
+	ref_iy = (int) ssy - 1; // this is the y location of the reference node in cell space
+	if (flag3d) {
+		ref_iz = (int) ssz - 1; // this is the z location of the reference node in cell space
+	} else {
+		ref_iz = 0;
+	}
 	ref_node = ref_ix + ref_iy * grid_nx + ref_iz * grid_nx * grid_ny; // this is the index of the reference node
 
 	if ((ref_node < 0) || (ref_node > Ncells - 1)) { // memory access error check
-		printf("ref node %d outside allowed range %d to %d\n", ref_node, 0, Ncells);
+		printf("PreComputeGridWeightsAndDerivatives:: ref node %d outside allowed range %d to %d\n", ref_node, 0, Ncells);
 		printf("ref_ix=%d, ref_iy=%d, ref_iz=%d\n", ref_ix, ref_iy, ref_iz);
 		printf("ssx = %f, ssy=%f, ssz=%f\n", ssx, ssy, ssz);
 		printf("x-minx=%f, y-miny=%f, z-minz=%f\n", (x[i][0] - minx), (x[i][1] - miny), (x[i][2] - minz));
 		exit(1);
 	}
 
-	// pre-compute kernel weights
+// pre-compute kernel weights
 	for (int ioff = 0; ioff < 4; ioff++) { // this is the x stencil visible to the current particle
 		double dist = ref_ix + ioff - ssx; // this is the x distance in world coords
 		DisneyKernelAndDerivative(icellsize, dist, wfx[ioff], wfdx[ioff]);
 		dist = ref_iy + ioff - ssy; // this is the y distance in world coords
 		DisneyKernelAndDerivative(icellsize, dist, wfy[ioff], wfdy[ioff]);
-		dist = ref_iz + ioff - ssz; // this is the z distance in world coords
-		DisneyKernelAndDerivative(icellsize, dist, wfz[ioff], wfdz[ioff]);
+		if (flag3d) {
+			dist = ref_iz + ioff - ssz; // this is the z distance in world coords
+			DisneyKernelAndDerivative(icellsize, dist, wfz[ioff], wfdz[ioff]);
+		}
 	}
 
 }
@@ -578,19 +642,35 @@ void PairSmdMpmLin::ComputeVelocityGradient() {
 			PreComputeGridWeightsAndDerivatives(i, ref_node, wfx, wfy, wfz, wfdx, wfdy, wfdz);
 
 			// loop over all cell neighbors for this particle
-			for (int ix = 0; ix < 4; ix++) {
-				for (int iy = 0; iy < 4; iy++) {
-					for (int iz = 0; iz < 4; iz++) {
+			if (flag3d) {
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+						for (int iz = 0; iz < 4; iz++) {
 
-						g(0) = wfdx[ix] * wfy[iy] * wfz[iz]; // this is the kernel gradient
-						g(1) = wfdy[iy] * wfx[ix] * wfz[iz];
-						g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
+							g(0) = wfdx[ix] * wfy[iy] * wfz[iz]; // this is the kernel gradient
+							g(1) = wfdy[iy] * wfx[ix] * wfz[iz];
+							g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
 
-						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+							int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+							velocity_gradient += lgridnodes[node_index].v * g.transpose();
+							this_count = MAX(this_count, lgridnodes[node_index].count);
+						}
+					}
+				}
+			} else {
+				g(2) = 0.0;
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+
+						g(0) = wfdx[ix] * wfy[iy]; // this is the kernel gradient
+						g(1) = wfdy[iy] * wfx[ix];
+
+						int node_index = ref_node + ix + iy * grid_nx;
 						velocity_gradient += lgridnodes[node_index].v * g.transpose();
 						this_count = MAX(this_count, lgridnodes[node_index].count);
 					}
 				}
+
 			}
 
 			L[i] = -velocity_gradient;
@@ -634,18 +714,33 @@ void PairSmdMpmLin::ComputeGridForces() {
 			PreComputeGridWeightsAndDerivatives(i, ref_node, wfx, wfy, wfz, wfdx, wfdy, wfdz);
 
 			// loop over all cell neighbors for this particle
-			for (int iz = 0; iz < 4; iz++) {
+			if (flag3d) {
+				for (int iz = 0; iz < 4; iz++) {
+					for (int iy = 0; iy < 4; iy++) {
+						for (int ix = 0; ix < 4; ix++) {
+
+							g(0) = wfdx[ix] * wfy[iy] * wfz[iz]; // this is the kernel gradient
+							g(1) = wfdy[iy] * wfx[ix] * wfz[iz];
+							g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
+
+							int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+							lgridnodes[node_index].f += scaledStress * g;
+						}
+					}
+				}
+			} else {
+				g(2) = 0.0;
 				for (int iy = 0; iy < 4; iy++) {
 					for (int ix = 0; ix < 4; ix++) {
 
-						g(0) = wfdx[ix] * wfy[iy] * wfz[iz]; // this is the kernel gradient
-						g(1) = wfdy[iy] * wfx[ix] * wfz[iz];
-						g(2) = wfdz[iz] * wfx[ix] * wfy[iy];
+						g(0) = wfdx[ix] * wfy[iy]; // this is the kernel gradient
+						g(1) = wfdy[iy] * wfx[ix];
 
-						int node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+						int node_index = ref_node + ix + iy * grid_nx;
 						lgridnodes[node_index].f += scaledStress * g;
 					}
 				}
+
 			}
 		} // end if (setflag[itype][itype])
 	} // end loop over nall particles
@@ -691,14 +786,32 @@ void PairSmdMpmLin::GridToPoints() {
 			PreComputeGridWeights(i, ref_node, wfx, wfy, wfz);
 
 			// loop over all cell neighbors for this particle
-			for (int ix = 0; ix < 4; ix++) {
-				for (int iy = 0; iy < 4; iy++) {
-					for (int iz = 0; iz < 4; iz++) {
+			if (flag3d) {
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+						for (int iz = 0; iz < 4; iz++) {
 
-						node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+							node_index = ref_node + ix + iy * grid_nx + iz * grid_nx * grid_ny;
+							if (lgridnodes[node_index].mass > MASS_CUTOFF) {
+
+								wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
+								pv += wf * lgridnodes[node_index].v;
+								pa += wf * lgridnodes[node_index].imass * (lgridnodes[node_index].f + lgridnodes[node_index].fbody);
+								phr += wf * lgridnodes[node_index].dheat_dt;
+								ph += wf * lgridnodes[node_index].heat;
+							}
+
+						}
+					}
+				}
+			} else {
+				for (int ix = 0; ix < 4; ix++) {
+					for (int iy = 0; iy < 4; iy++) {
+
+						node_index = ref_node + ix + iy * grid_nx;
 						if (lgridnodes[node_index].mass > MASS_CUTOFF) {
 
-							wf = wfx[ix] * wfy[iy] * wfz[iz]; // total weight function
+							wf = wfx[ix] * wfy[iy]; // total weight function
 							pv += wf * lgridnodes[node_index].v;
 							pa += wf * lgridnodes[node_index].imass * (lgridnodes[node_index].f + lgridnodes[node_index].fbody);
 							phr += wf * lgridnodes[node_index].dheat_dt;
@@ -891,12 +1004,13 @@ void PairSmdMpmLin::MUSL() {
 
 	timeone_PointstoGrid -= MPI_Wtime();
 	PointsToGrid();
-	ComputeHeatGradientOnGrid();
 	timeone_PointstoGrid += MPI_Wtime();
 
 	timeone_SymmetryBC -= MPI_Wtime();
 	CheckSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
+
+	ComputeHeatGradientOnGrid();
 
 	timeone_Comm -= MPI_Wtime();
 	GetStress();
@@ -954,7 +1068,7 @@ void PairSmdMpmLin::MUSL() {
 	AdvanceParticlesEnergy();
 	timeone_UpdateParticles += MPI_Wtime();
 
-	//DumpGrid();
+//DumpGrid();
 
 	DestroyGrid();
 }
@@ -1197,7 +1311,7 @@ void PairSmdMpmLin::UpdateStress() {
 		} // end if (setflag[itype][itype] == 1)
 	} // end loop over nlocal
 
-	// fallback if no atoms are present:
+// fallback if no atoms are present:
 	int check_flag = 0;
 	for (itype = 1; itype <= atom->ntypes; itype++) {
 		if (setflag[itype][itype] == 1) {
@@ -1580,7 +1694,7 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 	double dx = 1 * pbc[0] * domain->xprd;
 	double dy = 1 * pbc[1] * domain->yprd;
 	double dz = 1 * pbc[2] * domain->zprd;
-	//printf("dx=%f, dy=%f, dz=%f\n", dx, dy, dz);
+//printf("dx=%f, dy=%f, dz=%f\n", dx, dy, dz);
 //printf("packing comm\n");
 
 	m = 0;
@@ -2058,6 +2172,8 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		MirrorCellVelocity(sourcecell, targetcell, 0);
 
 	} else if (direction == Yplus) {
+		//lgridnodes[icell].heat = 10.0; // c
+		//lgridnodes[icell].v(0) = 0.0; //c
 		lgridnodes[icell].v(1) = 0.0;
 		lgridnodes[icell].f(1) = 0.0;
 		// mirror velocity of nodes on the +-side to the -side
@@ -2067,7 +2183,12 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
 		MirrorCellVelocity(sourcecell, targetcell, 1);
 
+		//lgridnodes[targetcell].heat = 10.0; // c
+		//lgridnodes[targetcell].v(0) = 0.0; //c
+
 	} else if (direction == Yminus) {
+		//lgridnodes[icell].heat = 0.0; //c
+		//lgridnodes[icell].v(0) = 0.0; //c
 		lgridnodes[icell].v(1) = 0.0;
 		lgridnodes[icell].f(1) = 0.0;
 		// mirror velocity of nodes on the +-side to the -side
@@ -2076,6 +2197,9 @@ void PairSmdMpmLin::ApplySymmetryBC(int icell, int ix, int iy, int iz, int direc
 		int sourcecell = ix + source * grid_nx + iz * grid_nx * grid_ny;
 		int targetcell = ix + target * grid_nx + iz * grid_nx * grid_ny;
 		MirrorCellVelocity(sourcecell, targetcell, 1);
+
+		//lgridnodes[targetcell].heat = 0.0; // c
+		//lgridnodes[targetcell].v(0) = 0.0; //c
 
 	} else if (direction == Zplus) {
 		lgridnodes[icell].v(2) = 0.0;

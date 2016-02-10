@@ -30,7 +30,7 @@ boundary        f f f # simulation box boundaries
 atom_style      smd
 atom_modify	map array
 comm_modify     vel yes
-comm_style      tiled
+comm_style      brick
 neigh_modify    every 10 delay 0 check yes exclude type 2 2 one 10000
 newton          off
 
@@ -87,9 +87,8 @@ pair_coeff      1 2 smd/tri_surface ${contact_stiffness} ${wall_temperature} ${f
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
-fix             force_fix surface setforce 0 0 0
+#fix             force_fix surface setforce 0 0 0
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
-#fix             integration_fix water smd/integrate_mpm FLIP 0.99
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -113,8 +112,8 @@ dump_modify 	surf_dump first yes
 ####################################################################################################
 # STATUS OUTPUT
 ####################################################################################################
-compute         eint all smd/internal_energy
-compute         alleint all reduce sum c_eint
+compute         eint all smd/energy
+compute         alleint all reduce sum c_eint[1]
 compute         vx_block water reduce ave vx
 compute         fx_block water reduce sum fx
 compute         fz_block water reduce sum fz
@@ -135,4 +134,4 @@ thermo_style custom step dt f_dtfix pe ke v_etot c_vx_block
 #balance          1.1 rcb
 #fix              balance_fix all balance 1000 1.1 rcb 
 #velocity         water set 0 -1 0 units box
-run              500
+run              50000
