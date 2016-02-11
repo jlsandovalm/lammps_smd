@@ -1,6 +1,6 @@
 #!/bin/sh
 
-export OMPI_CXX=clang++-3.5
+export OMPI_CXX=clang++
 
 make package-update
 make -j 4 $1

@@ -47,7 +47,7 @@ group           water type 1
 # DISCRETIZATION PARAMETERS
 ####################################################################################################
 variable 	vol_one equal ${l0}^3 # volume of one particle -- assuming unit thickness
-variable 	skin equal 0.2*${l0} # Verlet list range
+variable 	skin equal 1.0*${l0} # Verlet list range
 neighbor        ${skin} bin
 variable        cr equal ${l0}/2
 set             group all smd_contact_radius ${cr}
@@ -59,7 +59,6 @@ variable        mpm_cellsize equal ${l0}
 ####################################################################################################
 # DEFINE GRAVITY BOUNDARY CONDITION
 ####################################################################################################
-fix		gfix all gravity 0.0 vector 0.0 0.0 1
 # create a group to hold the bottom layer of plate particles
 region          bot block EDGE EDGE EDGE EDGE EDGE 0.51 units box
 set             region bot mol 1000
@@ -86,20 +85,19 @@ pair_coeff      1 2 smd/tri_surface ${contact_stiffness} ${wall_temperature} ${f
 fix             force_fix indentor setforce 0 0 0
 fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
 
-
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
 ####################################################################################################
-variable        dumpFreq equal 1
+variable        dumpFreq equal 10
 compute         P water smd/plastic_strain
 compute 	vol all smd/volume
 compute         contact_radius all smd/contact_radius
 compute         surface_coords indentor smd/triangle_vertices
-compute         S water smd/ulsph_stress
-
+compute         S water smd/stress
+compute         eint all smd/energy
 
 dump 		dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz &
-			c_vol c_contact_radius proc c_P c_S[7]
+			c_vol c_contact_radius proc c_P c_S[7] c_eint[3]
 dump_modify 	dump_id first yes
 
 dump            surf_dump indentor custom ${dumpFreq} surface.LAMMPS id type mol x y z  &
@@ -111,11 +109,18 @@ dump_modify 	surf_dump first yes
 ####################################################################################################
 # STATUS OUTPUT
 ####################################################################################################
-compute         eint all smd/internal_energy
-compute         alleint all reduce sum c_eint
-variable        etot equal pe+ke+c_alleint+f_gfix # total energy of the system
+
+compute         elastic_energy all reduce sum c_eint[1]
+compute         heat all reduce sum c_eint[2]
+variable        etot equal pe+ke+c_elastic_energy+c_heat # total energy of the system
 thermo 1
 thermo_style custom step dt time pe ke v_etot
+
+variable        t equal time
+variable        fx equal f_force_fix[1] # x force on indentor
+variable        fy equal f_force_fix[2] # x force on indentor
+variable        fz equal f_force_fix[3] # x force on indentor
+fix             output_fix all print 1 "$t ${fx} ${fy} ${fz}" file force.dat screen no
 
 ####################################################################################################
 # RUN SIMULATION
@@ -123,53 +128,11 @@ thermo_style custom step dt time pe ke v_etot
 run 0
 balance          1.1 rcb
 fix              balance_fix all balance 1000 1.1 rcb 
-#velocity         water set 0 -1 0 units box
 
-#timestep 0.4
-# prescribe indentor velocity and run
+# move indentor downwards
+fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 0 -0.1
+run             30
 
-# got to E origin at (10, 15)
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR 10 -5 0
-smd_run_duration 1
-run              999999999
-# lower
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 0 -1
-smd_run_duration 1
-run              999999999
-# move x -10
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR -1 0 0
-smd_run_duration 10
-run              999999999
-# move y -15
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 -1 0
-smd_run_duration 15
-run              999999999
-# move x +10
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR 1 0 0
-smd_run_duration 10
-run              999999999
-# raise
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 0 1
-smd_run_duration 1
-run              999999999
-# got to E center at (0, 7.5)
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR -10 7.5 0
-smd_run_duration 1
-run              999999999
-# lower
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 0 -1
-smd_run_duration 1
-run              999999999
-# move x +10
-fix             indentor_fix indentor smd/move_tri_surf *LINEAR 1 0 0
-smd_run_duration 10
-run              999999999
-
-run 0
-#fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 0 -0.1
-#smd_run_duration 10
-#run             999999999
-#fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0.1 0 0
-#run             2500
-#fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 0 0.1
-#run             150
+# move indentor over the plane
+fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0.07 -0.05 0
+run             1000
