@@ -2039,8 +2039,6 @@ void PairSmdMpmLin::ComputeHeatGradientOnGrid() {
 
 				if (lgridnodes[icell].mass > MASS_CUTOFF) {
 
-					dxx = dyy = dzz = 0.0;
-
 					// 2nd derivative in x direction
 					int plus_cell = ix + 1 + iy * grid_nx + iz * grid_nx * grid_ny;
 					int minus_cell = ix - 1 + iy * grid_nx + iz * grid_nx * grid_ny;

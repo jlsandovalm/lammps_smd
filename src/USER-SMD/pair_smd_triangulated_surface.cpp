@@ -46,6 +46,7 @@
 #include <Eigen/Eigen>
 #include <stdio.h>
 #include <iostream>
+#include "SmdMatDB.h"
 
 using namespace std;
 using namespace LAMMPS_NS;
@@ -62,9 +63,17 @@ PairTriSurf::PairTriSurf(LAMMPS *lmp) :
 	bulkmodulus = NULL;
 	kn = NULL;
 	frictionCoefficient = NULL;
+	eta = NULL;
 	scale = 1.0;
 	nmax = 0; // make sure no atom on this proc such that initial memory allocation is correct
 	ncontact = NULL;
+
+	// this pair style needs to access the material constitutive law database:
+	// heat capacity and stiffness are needed.
+	int retcode = SmdMatDB::instance().ReadMaterials(atom->ntypes);
+	if (retcode < 0) {
+		error->one(FLERR, "failed to read material database");
+	}
 }
 
 /* ---------------------------------------------------------------------- */
@@ -77,6 +86,7 @@ PairTriSurf::~PairTriSurf() {
 		memory->destroy(bulkmodulus);
 		memory->destroy(kn);
 		memory->destroy(frictionCoefficient);
+		memory->destroy(eta);
 
 		delete[] onerad_dynamic;
 		delete[] onerad_frozen;
@@ -89,11 +99,10 @@ PairTriSurf::~PairTriSurf() {
 /* ---------------------------------------------------------------------- */
 
 void PairTriSurf::compute(int eflag, int vflag) {
-	int i, j, ii, jj, inum, jnum, itype, jtype;
+	int i, j, ii, jj, inum, jnum, itype, jtype, particle_type;
 	double rsq, r, evdwl, normalForceMagnitude;
 	int *ilist, *jlist, *numneigh, **firstneigh;
-	double rcut, r_geom, delta, r_tri, r_particle, touch_distance, dt_crit;
-	double cosAngle;
+	double rcut, r_tri, r_particle, touch_distance;
 	int tri, particle, region;
 	Vector3d normal, x1, x2, x3, x4, x13, x23, x43, w, cp, x4cp, vnew, v_old;
 	;
@@ -157,9 +166,7 @@ void PairTriSurf::compute(int eflag, int vflag) {
 
 			jtype = type[j];
 
-			/*
-			 * decide which one of i, j is triangle and which is particle
-			 */
+			/* decide which one of i, j is triangle and which is particle */
 			if ((mol[i] < 65535) && (mol[j] >= 65535)) {
 				particle = i;
 				tri = j;
@@ -170,15 +177,13 @@ void PairTriSurf::compute(int eflag, int vflag) {
 				error->one(FLERR, "unknown case");
 			}
 
-			//x_center << x[tri][0], x[tri][1], x[tri][2]; // center of triangle
-			x_center(0) = x[tri][0];
-			x_center(1) = x[tri][1];
-			x_center(2) = x[tri][2];
-			//x4 << x[particle][0], x[particle][1], x[particle][2];
-			x4(0) = x[particle][0];
-			x4(1) = x[particle][1];
-			x4(2) = x[particle][2];
-			dx = x_center - x4; //
+			particle_type = type[particle];
+
+			x_center << x[tri][0], x[tri][1], x[tri][2]; // center of triangle
+
+			x4 << x[particle][0], x[particle][1], x[particle][2]; // particle coordinates.
+
+			dx = x_center - x4; // distance from particle to the triangle's center
 			if (periodic) {
 				domain->minimum_image(dx(0), dx(1), dx(2));
 			}
@@ -189,181 +194,104 @@ void PairTriSurf::compute(int eflag, int vflag) {
 			rcut = r_tri + r_particle;
 			rcutSq = rcut * rcut;
 
-			//printf("type i=%d, type j=%d, r=%f, ri=%f, rj=%f\n", itype, jtype, sqrt(rsq), ri, rj);
-
+			/* 1. Neighborhood Check:  */
 			if (rsq < rcutSq) {
 
+				getTriangleInfo(x0[tri], smd_data_9[tri], x1, x2, x3, normal);
 
-				/*
-				 * gather triangle information
-				 */
-				normal(0) = x0[tri][0];
-				normal(1) = x0[tri][1];
-				normal(2) = x0[tri][2];
+				/* projection of particle on triangle's plane */
+				region = PointTriangleDistance(x4, x1, x2, x3, normal, cp, x4cp,
+						r);
 
-				/*
-				 * distance check: is particle closer than its radius to the triangle plane?
-				 */
-				if (fabs(dx.dot(normal)) < r_particle) {
+				/* 2. Region Check: is particle's projection inside the triangle's area? */
+				if (region == 0) {
 
-					heat[particle] = wall_temperature[itype][jtype]; // directly set particle temperature to wall temp
+					Vector3d viscousFForce, coulumbFForce, totalForce;
 
-					/*
-					 * get other two triangle vertices
-					 */
-					x1(0) = smd_data_9[tri][0];
-					x1(1) = smd_data_9[tri][1];
-					x1(2) = smd_data_9[tri][2];
-					x2(0) = smd_data_9[tri][3];
-					x2(1) = smd_data_9[tri][4];
-					x2(2) = smd_data_9[tri][5];
-					x3(0) = smd_data_9[tri][6];
-					x3(1) = smd_data_9[tri][7];
-					x3(2) = smd_data_9[tri][8];
+					normalForceMagnitude = 0;
+					viscousFForce.setZero();
+					coulumbFForce.setZero();
+					totalForce.setZero();
 
-					region = PointTriangleDistance(x4, x1, x2, x3, cp, r);
+					/* Calculate Tangential Relative Velocity */
+					Vector3d vtan = TangentialVelocity(particle, tri, normal);
+					double vtan_norm = vtan.norm();
 
-					/*
-					 * penalty force pushes particle away from triangle
-					 */
-					if (r < r_particle) {
+					/* V I S C O U S   F R I C T I O N   F O R C E */
 
-						/*
-						 * guard against the case that r is very small
-						 */
-						if (r < 1.0e-2 * r_particle) {
-							continue;
-						}
+					viscousFForce = -eta[itype][jtype] * vtan / (r * r);
 
-						/*
-						 * distance vector to closest point on triangle
-						 */
-						x4cp = x4 - cp;
+					/* 3. Contact Check: is particle closer than its radius to the triangle plane? */
+					if (fabs(dx.dot(normal)) < r_particle) {
 
-						/*
-						 * check validity of result:
-						 * if region = 0, cp is within triangle and x4cp should be parallel to triangle normal
-						 */
-						cosAngle = x4cp.dot(normal) / r;
-						if (region == 0) {
-							if (fabs(fabs(cosAngle) - 1.0) > 1.0e-3) {
-								cout << "x4cp   is " << x4cp.transpose() << endl;
-								cout << "normal is " << normal.transpose() << endl;
-								printf("region is %d, expected |cosAngle = 1| but cosAngle is %f\n", region, cosAngle);
-								error->one(FLERR, "");
+						/* directly set particle temperature (specific thermal energy) to wall temperature */
+						heat[particle] = wall_temperature[itype][jtype] * rmass[particle] * SmdMatDB::instance().gProps[particle_type].cp;;
+
+						/* penalty force pushes particle away from triangle */
+						if (r < r_particle) {
+
+							/* guard against the case that r is very small */
+							if (r < 1.0e-2 * r_particle) {
+								continue;
 							}
-						} else {
-							continue; //skip contact because we only want contact with interior points
-							// contact point is on edge
-							error->warning(FLERR, "contact point is an edge");
+							ncontact[particle] += 1;
+
+							NormalForce(r_particle, r,
+									bulkmodulus[itype][jtype], rmass[particle],
+									normalForceMagnitude, evdwl,
+									stable_time_increment);
+
+							/* C O U L U M ' S   F R I C T I O N   F O R C E */
+
+							if (vtan_norm > 1.0e-16) {
+								coulumbFForce = -normalForceMagnitude
+										* frictionCoefficient[itype][jtype]
+										* vtan / vtan_norm;
+							} else {
+								coulumbFForce.setZero();
+							}
+
+							if (evflag) {
+								normalForceMagnitude /= r; // divide by r because ev_tally expects force * distance vector
+								ev_tally(i, j, nlocal, newton_pair, evdwl, 0.0,
+										normalForceMagnitude, x4cp(0), x4cp(1),
+										x4cp(2));
+							}
 						}
 
-						ncontact[particle] += 1;
+						/* if particle comes too close to triangle, reflect its velocity and */
+						/* explicitly move it back to the predetermined "touch-distance"     */
 
-
-						/*
-						 * flip normal to point in direction of x4cp
-						 */
-
-						if (x4cp.dot(normal) < 0.0) {
-							normal *= -1.0;
+						touch_distance = 0.4 * r_particle;
+						if (r < touch_distance) {
+							keepTouchDistance(cp, x4cp, v[particle], r,
+									touch_distance, *&x[particle]);
 						}
-
-						delta = r_particle - r; // overlap distance
-						r_geom = r_particle;
-						normalForceMagnitude = 1.066666667e0 * bulkmodulus[itype][jtype] * delta * sqrt(delta * r_geom);
-						dt_crit = 3.14 * sqrt(rmass[particle] / (normalForceMagnitude / delta));
-						stable_time_increment = MIN(stable_time_increment, dt_crit);
-
-						evdwl = r * normalForceMagnitude * 0.4e0 * delta; // GCG 25 April: this expression conserves total energy
-						//printf("tri interaction: r = %f, rcut=%f\n", r, r_particle);
-
-						/*
-						 * friction
-						 */
-
-						Vector3d frictionForce;
-						Vector3d vtan = TangentialVelocity(particle, tri, normal);
-
-						/*
-						 * tangentail velocity and normal should be orthognal
-						 */
-
-						if (fabs(vtan.dot(normal)) > 1.0e-3) {
-							cout << "vtan   is " << vtan.transpose() << endl;
-							cout << "normal is " << normal.transpose() << endl;
-							printf("expected angle between tangential (projected in plane velocity) and triangle normal to be close to zero, but cosAngle is %f\n", vtan.dot(normal));
-							error->one(FLERR, "");
-						}
-
-						double vtan_norm = vtan.norm();
-						if (vtan_norm > 1.0e-16) {
-							frictionForce = -normalForceMagnitude * frictionCoefficient[itype][jtype] * vtan / vtan_norm;
-						} else {
-							frictionForce.setZero();
-						}
-
-						/*
-						 * total force = repulsive elastic force along normal
-						 *             + tangential frictional force
-						 */
-
-						Vector3d totalForce = normalForceMagnitude * normal + frictionForce;
-
-						if (particle < nlocal) {
-							f[particle][0] += totalForce(0);
-							f[particle][1] += totalForce(1);
-							f[particle][2] += totalForce(2);
-						}
-
-						if (tri < nlocal) {
-							f[tri][0] -= totalForce(0);
-							f[tri][1] -= totalForce(1);
-							f[tri][2] -= totalForce(2);
-						}
-
-						if (evflag) {
-							normalForceMagnitude /= r; // divide by r because ev_tally expects force * distance vector
-							ev_tally(i, j, nlocal, newton_pair, evdwl, 0.0, normalForceMagnitude, x4cp(0), x4cp(1), x4cp(2));
-						}
-
 					}
 
-					/*
-					 * if particle comes too close to triangle, reflect its velocity and explicitly move it away
-					 */
+					/* T O T A L   F O R C E */
+					/* total force =   repulsive elastic force along normal */
+					/*               + tangential frictional force          */
 
-					touch_distance = 0.5 * r_particle;
-					if (r < touch_distance) {
+					totalForce = normalForceMagnitude * normal + coulumbFForce
+							+ viscousFForce;
 
-						/*
-						 * reflect velocity if it points toward triangle
-						 */
-
-						normal = x4cp / r;
-
-						//v_old << v[particle][0], v[particle][1], v[particle][2];
-						v_old(0) = v[particle][0];
-						v_old(1) = v[particle][1];
-						v_old(2) = v[particle][2];
-						if (v_old.dot(normal) < 0.0) {
-							//printf("flipping velocity\n");
-
-							vnew = -1.0 * (-2.0 * v_old.dot(normal) * normal + v_old);
-							//cout << "vold " << v_old.transpose() << endl;
-							//cout << "v new" << vnew.transpose() << endl;
-							v[particle][0] = vnew(0);
-							v[particle][1] = vnew(1);
-							v[particle][2] = vnew(2);
-						}
-
-//						printf("moving particle on top of triangle\n");
-						x[particle][0] = cp(0) + touch_distance * normal(0);
-						x[particle][1] = cp(1) + touch_distance * normal(1);
-						x[particle][2] = cp(2) + touch_distance * normal(2);
-
+					if (particle < nlocal) {
+						f[particle][0] += totalForce(0);
+						f[particle][1] += totalForce(1);
+						f[particle][2] += totalForce(2);
 					}
 
+					if (tri < nlocal) {
+						f[tri][0] -= totalForce(0);
+						f[tri][1] -= totalForce(1);
+						f[tri][2] -= totalForce(2);
+					}
+
+				} else {
+					continue; //skip contact because we only want contact with interior points
+					// contact point is on edge
+					error->warning(FLERR, "contact point is an edge");
 				}
 			}
 		}
@@ -382,11 +310,10 @@ void PairTriSurf::compute(int eflag, int vflag) {
 //		}
 }
 
-/* ----------------------------------------------------------------------
- compute frictional force between particle and triangle surface
- ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
 
-Vector3d PairTriSurf::TangentialVelocity(const int particle, const int tri, const Vector3d normal) {
+Vector3d PairTriSurf::TangentialVelocity(const int particle, const int tri,
+		const Vector3d normal) {
 	double **v = atom->v;
 	Map<const Vector3d> v_particle(v[particle]);
 	Map<const Vector3d> v_tri(v[tri]);
@@ -394,7 +321,99 @@ Vector3d PairTriSurf::TangentialVelocity(const int particle, const int tri, cons
 	Vector3d vrel = v_particle - v_tri; // relative translational velocity, points from tri to node, like dx
 	Vector3d vtan = vrel - normal * vrel.dot(normal); // tangential velocity component
 
+	/*
+	 * tangentail velocity and normal should be orthognal
+	 */
+
+	if (fabs(vtan.dot(normal)) > 1.0e-3) {
+		cout << "vtan   is " << vtan.transpose() << endl;
+		cout << "normal is " << normal.transpose() << endl;
+		printf(
+				"expected angle between tangential (projected in plane velocity) and triangle normal to be close to zero, but cosAngle is %f\n",
+				vtan.dot(normal));
+		error->one(FLERR, "");
+	}
+
 	return vtan;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PairTriSurf::getTriangleInfo(const double *x0, const double *smd_data_9,
+		Vector3d &x1, Vector3d &x2, Vector3d &x3, Vector3d &normal) {
+
+	/*
+	 * gather triangle information
+	 */
+	normal(0) = x0[0];
+	normal(1) = x0[1];
+	normal(2) = x0[2];
+
+	/*
+	 * get triangle vertices
+	 */
+	x1(0) = smd_data_9[0];
+	x1(1) = smd_data_9[1];
+	x1(2) = smd_data_9[2];
+	x2(0) = smd_data_9[3];
+	x2(1) = smd_data_9[4];
+	x2(2) = smd_data_9[5];
+	x3(0) = smd_data_9[6];
+	x3(1) = smd_data_9[7];
+	x3(2) = smd_data_9[8];
+
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PairTriSurf::NormalForce(const double r_particle, const double r,
+		const double bulk_M, const double mass, double &normalForceNorm,
+		double &evdwl, double &stable_dt) {
+	double delta, r_geom, dt_crit;
+
+	delta = r_particle - r; // overlap distance
+	r_geom = r_particle;
+
+	normalForceNorm = 1.066666667e0 * bulk_M * delta * sqrt(delta * r_geom);
+
+	evdwl = r * normalForceNorm * 0.4e0 * delta; // GCG 25 April: this expression conserves total energy
+
+	dt_crit = 3.14 * sqrt(mass / (normalForceNorm / delta));
+
+	stable_dt = MIN(stable_dt, dt_crit);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void PairTriSurf::keepTouchDistance(const Vector3d cp, const Vector3d x4cp,
+		double *&v, const double r, const double touch_distance, double *&x) {
+
+	Vector3d normal, v_old, vnew;
+
+	/*
+	 * reflect velocity if it points toward triangle
+	 */
+
+	normal = x4cp / r;
+
+	// printf("moving particle on top of triangle\n");
+	x[0] = cp(0) + touch_distance * normal(0);
+	x[1] = cp(1) + touch_distance * normal(1);
+	x[2] = cp(2) + touch_distance * normal(2);
+
+	//v_old << v[particle][0], v[particle][1], v[particle][2];
+	v_old(0) = v[0];
+	v_old(1) = v[1];
+	v_old(2) = v[2];
+
+	if (v_old.dot(normal) < 0.0) {
+		//printf("flipping velocity\n");
+		vnew = -1.0 * (-2.0 * v_old.dot(normal) * normal + v_old);
+		v[0] = vnew(0);
+		v[1] = vnew(1);
+		v[2] = vnew(2);
+	}
+
 }
 
 /* ----------------------------------------------------------------------
@@ -413,7 +432,9 @@ void PairTriSurf::allocate() {
 	memory->create(bulkmodulus, n + 1, n + 1, "pair:kspring");
 	memory->create(kn, n + 1, n + 1, "pair:kn");
 	memory->create(wall_temperature, n + 1, n + 1, "pair:wall_temperature");
-	memory->create(frictionCoefficient, n + 1, n + 1, "pair:frictionCoefficient");
+	memory->create(frictionCoefficient, n + 1, n + 1,
+			"pair:frictionCoefficient");
+	memory->create(eta, n + 1, n + 1, "pair:eta");
 
 	memory->create(cutsq, n + 1, n + 1, "pair:cutsq"); // always needs to be allocated, even with granular neighborlist
 
@@ -429,14 +450,17 @@ void PairTriSurf::allocate() {
 
 void PairTriSurf::settings(int narg, char **arg) {
 	if (narg != 1)
-		error->all(FLERR, "Illegal number of args for pair_style smd/tri_surface");
+		error->all(FLERR,
+				"Illegal number of args for pair_style smd/tri_surface");
 
 	scale = force->numeric(FLERR, arg[0]);
 	if (comm->me == 0) {
-		printf("\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
+		printf(
+				"\n>>========>>========>>========>>========>>========>>========>>========>>========\n");
 		printf("SMD/TRI_SURFACE CONTACT SETTINGS:\n");
 		printf("... effective contact radius is scaled by %f\n", scale);
-		printf(">>========>>========>>========>>========>>========>>========>>========>>========\n");
+		printf(
+				">>========>>========>>========>>========>>========>>========>>========>>========\n");
 	}
 
 }
@@ -446,9 +470,9 @@ void PairTriSurf::settings(int narg, char **arg) {
  ------------------------------------------------------------------------- */
 
 void PairTriSurf::coeff(int narg, char **arg) {
-	if (narg != 5)
+	if (narg != 6)
 		error->all(FLERR,
-				"Incorrect args for pair coefficients. Expected: i, j, contact_stiffness, wall_temperature, friction_coefficient");
+				"Incorrect args for pair coefficients. Expected: i, j, contact_stiffness, wall_temperature, Coulomb friction_coefficient, viscous friction coeff");
 	if (!allocated)
 		allocate();
 
@@ -459,6 +483,7 @@ void PairTriSurf::coeff(int narg, char **arg) {
 	double bulkmodulus_one = atof(arg[2]);
 	double wall_temperature_one = atof(arg[3]);
 	double frictionCoefficient_one = atof(arg[4]);
+	double eta_one = atof(arg[5]);
 
 	// set short-range force constant
 	double kn_one = 0.0;
@@ -475,6 +500,7 @@ void PairTriSurf::coeff(int narg, char **arg) {
 			kn[i][j] = kn_one;
 			wall_temperature[i][j] = wall_temperature_one;
 			frictionCoefficient[i][j] = frictionCoefficient_one;
+			eta[i][j] = eta_one;
 			setflag[i][j] = 1;
 			count++;
 		}
@@ -500,6 +526,7 @@ double PairTriSurf::init_one(int i, int j) {
 	kn[j][i] = kn[i][j];
 	wall_temperature[j][i] = wall_temperature[i][j];
 	frictionCoefficient[j][i] = frictionCoefficient[i][j];
+	eta[j][i] = eta[i][j];
 
 	// cutoff = sum of max I,J radii for
 	// dynamic/dynamic & dynamic/frozen interactions, but not frozen/frozen
@@ -524,7 +551,8 @@ void PairTriSurf::init_style() {
 	// error checks
 
 	if (!atom->contact_radius_flag)
-		error->all(FLERR, "Pair style smd/smd/tri_surface requires atom style with contact_radius");
+		error->all(FLERR,
+				"Pair style smd/smd/tri_surface requires atom style with contact_radius");
 
 	// old: half list
 	int irequest = neighbor->request(this);
@@ -550,8 +578,10 @@ void PairTriSurf::init_style() {
 		onerad_dynamic[type[i]] = MAX(onerad_dynamic[type[i]], radius[i]);
 	}
 
-	MPI_Allreduce(&onerad_dynamic[1], &maxrad_dynamic[1], atom->ntypes, MPI_DOUBLE, MPI_MAX, world);
-	MPI_Allreduce(&onerad_frozen[1], &maxrad_frozen[1], atom->ntypes, MPI_DOUBLE, MPI_MAX, world);
+	MPI_Allreduce(&onerad_dynamic[1], &maxrad_dynamic[1], atom->ntypes,
+			MPI_DOUBLE, MPI_MAX, world);
+	MPI_Allreduce(&onerad_frozen[1], &maxrad_frozen[1], atom->ntypes,
+			MPI_DOUBLE, MPI_MAX, world);
 }
 
 /* ----------------------------------------------------------------------
@@ -859,8 +889,9 @@ double PairTriSurf::memory_usage() {
  % http:\\www.geometrictools.com/Documentation/DistancePoint3Triangle3.pdf
  */
 
-int PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vector3d TRI0, const Vector3d TRI1, const Vector3d TRI2,
-		Vector3d &CP, double &dist) {
+int PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition,
+		const Vector3d TRI0, const Vector3d TRI1, const Vector3d TRI2,
+		Vector3d &normal, Vector3d &CP, Vector3d &x4cp, double &dist) {
 
 	Vector3d edge0 = TRI1 - TRI0;
 	Vector3d edge1 = TRI2 - TRI0;
@@ -875,6 +906,7 @@ int PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vect
 	double det = a * c - b * b;
 	double s = b * e - c * d;
 	double t = b * d - a * e;
+	double cosAngle = 0;
 
 	int region = 1; // region is 0 if closest point is within triangle, 1 if on triangle edges
 
@@ -934,7 +966,28 @@ int PairTriSurf::PointTriangleDistance(const Vector3d sourcePosition, const Vect
 	}
 
 	CP = TRI0 + s * edge0 + t * edge1;
-	dist = (CP - sourcePosition).norm();
+
+	/* distance vector to closest point on triangle */
+	x4cp = sourcePosition - CP;
+	dist = x4cp.norm();
+
+	/* flip normal to point in direction of x4cp */
+	if (x4cp.dot(normal) < 0.0) {
+		normal *= -1.0;
+	}
+
+	if (region == 0) {
+		/* check validity of result: x4cp should be parallel to triangle normal */
+		cosAngle = x4cp.dot(normal) / dist;
+		if (fabs(fabs(cosAngle) - 1.0) > 1.0e-3) {
+			cout << "x4cp   is " << x4cp.transpose() << endl;
+			cout << "normal is " << normal.transpose() << endl;
+			printf("region is %d, expected |cosAngle = 1| but cosAngle is %f\n",
+					region, cosAngle);
+			error->one(FLERR, "");
+		}
+	}
+
 	return region;
 
 }

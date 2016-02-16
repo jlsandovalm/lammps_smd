@@ -18,6 +18,7 @@ variable        K equal 1
 variable        contact_stiffness equal 1*${K}
 variable        wall_temperature equal 100
 variable        friction_coeff equal 0.5
+variable        visc_coeff equal 0.1
 
 ####################################################################################################
 # INITIALIZE LAMMPS
@@ -76,7 +77,7 @@ pair_style      hybrid/overlay smd/tri_surface 1.0 &
                 smd/mpm_linear ${mpm_cellsize} FLIP 0.99 
 pair_coeff      1 1 smd/mpm_linear
 pair_coeff      2 2 none
-pair_coeff      1 2 smd/tri_surface ${contact_stiffness} ${wall_temperature} ${friction_coeff}
+pair_coeff      1 2 smd/tri_surface ${contact_stiffness} ${wall_temperature} ${friction_coeff} ${visc_coeff}
 
 
 ####################################################################################################
@@ -97,7 +98,7 @@ compute         S water smd/stress
 compute         eint all smd/energy
 
 dump 		dump_id all custom ${dumpFreq} dump.LAMMPS id type x y z vx vy vz &
-			c_vol c_contact_radius proc c_P c_S[7] c_eint[3]
+			c_vol c_contact_radius proc c_P c_S[7] c_eint[2] c_eint[3]
 dump_modify 	dump_id first yes
 
 dump            surf_dump indentor custom ${dumpFreq} surface.LAMMPS id type mol x y z  &
@@ -131,8 +132,10 @@ fix              balance_fix all balance 1000 1.1 rcb
 
 # move indentor downwards
 fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0 0 -0.1
-run             30
+smd_run_duration 8
+run             999999
 
 # move indentor over the plane
 fix             indentor_fix indentor smd/move_tri_surf *LINEAR 0.07 -0.05 0
-run             1000
+smd_run_duration 100
+run             999999
