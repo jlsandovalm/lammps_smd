@@ -41,6 +41,7 @@ public:
 	int ReadEoss(CSimpleIni &ini, const int itype);
 	int ReadEosLinear(CSimpleIni &ini, const int itype);
 	int ReadEosTait(CSimpleIni &ini, const int itype);
+	int ReadEosShock(CSimpleIni &ini, const int itype);
 
 	// --------
 	int ReadStrengths(CSimpleIni &ini, const int itype);
@@ -128,6 +129,41 @@ public:
 		}
 	};
 	std::vector<EosTait> eosTait_vec; // holds all linear eos models in this simulation
+
+	class EosShock { // this is EosId 3
+			/**
+			 a more detail class description :
+			 \author Me
+			 \date 29/07/2005
+
+			 This is the Mie-Grueneisen shock EOS
+			 */
+		public:
+			double K, rho0, T0, c0, Gamma0, s;
+			std::string name;
+			EosShock(double rho0__, double T0__, double c0__, double Gamma0__, double s__, std::string name__) {
+				rho0 = rho0__;
+				T0 = T0__;
+				c0 = c0__;
+				Gamma0 = Gamma0__;
+				s = s__;
+				K = rho0 * c0 * c0;
+				name = name__;
+			}
+			void ComputePressure(double mu, double e_per_unit_volume, double &p, double &Ktangent) {
+				p = K * mu + Gamma0 * e_per_unit_volume;
+				Ktangent = K ;
+			}
+			void PrintParameters() {
+				printf("... This is EOS #3, Mie Grueneisen shock EOS\n");
+				printf("... reference bulk modulus is %f\n", K);
+				printf("... reference temperature is %f\n", T0);
+				printf("... reference speed of sound is %f\n", c0);
+				printf("... Gamma0 is %f\n", Gamma0);
+				printf("... Hugoniot slope is %f\n", s);
+			}
+		};
+		std::vector<EosShock> eosShock_vec; // holds all shock eos models in this simulation
 
 	class StrengthLinear {
 	public:

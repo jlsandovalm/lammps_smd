@@ -1176,7 +1176,7 @@ void PairSmdMpmLin::UpdateStress() {
 			devStrainIncrement = dt * devStrainRate;
 			rho = rmass[i] / vol[i];
 			double mu = 1.0 - J[i];
-			double temperature = 1.0;
+			double temperature = heat[i] / (SmdMatDB::instance().gProps[itype].cp * rmass[i]);
 
 			/*
 			 * Retrieve elastic stresses from the beginning of this time step
