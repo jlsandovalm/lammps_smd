@@ -83,7 +83,7 @@ public:
 	void PreComputeGridWeightsAndDerivatives(const int i, int &ref_node, double *wfx, double *wfy, double *wfz, double *wfdx,
 			double *wfdy, double *wfdz);
 	void VelocitiesToGrid();
-	void ComputeHeatGradientOnGrid();
+	void ComputeHeatFluxOnGrid();
 	void ApplySymmetryBC(int icell, int ix, int iy, int iz, int direction);
 	void CheckSymmetryBC();
 	void UpdateStress();
@@ -151,6 +151,9 @@ private:
 	bool true_deformation;
 	int iproc;
 	int gimp_offset;
+
+	// user-defined variables
+	double thermal_diffusivity; // heat diffusivity coefficient, set by "thermal" keyword units: [length^2 / time]
 
 };
 

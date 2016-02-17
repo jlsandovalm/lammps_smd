@@ -84,7 +84,7 @@ variable        mpm_cellsize equal 1.0*${l0}
 #     - total Lagrangian SPH for solid objects
 #     - a repulsive Hertzian potential for contact forces between different physical bodies
 ####################################################################################################
-pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1 2d
+pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1 2d thermal 0.8
 pair_coeff      1 1 *COMMON ${rho} ${c0} ${q1} ${Cp} ${Hg} &
                               *EOS_TAIT 2 &
                               *VISCOSITY_NEWTON 0.0 &
@@ -100,29 +100,27 @@ fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
 ####################################################################################################
-compute         eint all smd/internal_energy
+compute         eint all smd/energy
 compute         contact_radius all smd/contact_radius
 compute         vol all smd/volume
 compute         rho all smd/rho
 compute         peatom all pe/atom
-compute         S all smd/ulsph_stress
+compute         S all smd/stress
 compute         D all smd/ulsph_strain_rate
-compute         q all smd/heat
+compute         q all reduce sum c_eint[2]
 
 dump            dump_id all custom 10 dump.LAMMPS id type x y &
-                fx fy vx vy c_eint c_contact_radius mol &
-                radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4] c_q
+                fx fy vx vy c_eint[2] c_contact_radius mol &
+                radius c_vol c_rho proc c_peatom c_S[1] c_S[2] c_S[4] c_D[1] c_D[2] c_D[4]
 dump_modify     dump_id first yes
 
 
 ####################################################################################################
 # STATUS OUTPUT
 ####################################################################################################
-compute         alleint all reduce sum c_eint
-compute         allq all reduce sum c_q
-variable        etot equal pe+ke+c_alleint # total energy of the system
+variable        etot equal pe+ke+c_q # total energy of the system
 thermo          1
-thermo_style    custom step ke pe v_etot c_alleint f_dtfix dt c_vol c_allq
+thermo_style    custom step ke pe v_etot f_dtfix dt c_vol c_q
 thermo_modify   lost ignore
 
 ####################################################################################################
