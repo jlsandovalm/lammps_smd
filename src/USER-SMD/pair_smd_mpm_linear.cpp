@@ -299,6 +299,7 @@ void PairSmdMpmLin::PointsToGrid() {
 		lgridnodes[icell].mass = 0.0;
 		lgridnodes[icell].heat = 0.0;
 		lgridnodes[icell].dheat_dt = 0.0;
+		lgridnodes[icell].thermal_diffusivity = 0.0;
 		lgridnodes[icell].f.setZero();
 		lgridnodes[icell].v.setZero();
 		lgridnodes[icell].fbody.setZero();
@@ -313,6 +314,7 @@ void PairSmdMpmLin::PointsToGrid() {
 			// pre-compute all possible quantities
 			double particle_mass = rmass[i];
 			double particle_heat = particle_mass * heat[i];
+			double particle_thermal_diffusivity = particle_mass * SmdMatDB::instance().gProps[itype].thermal_diffusivity;
 			vel_particle << v[i][0], v[i][1], v[i][2];
 			vel_particle *= particle_mass;
 			otherForces << f[i][0], f[i][1], f[i][2];
@@ -337,6 +339,7 @@ void PairSmdMpmLin::PointsToGrid() {
 							lgridnodes[node_index].fbody += wf * otherForces;
 							lgridnodes[node_index].mass += wf * particle_mass;
 							lgridnodes[node_index].heat += wf * particle_heat;
+							lgridnodes[node_index].thermal_diffusivity += wf * particle_thermal_diffusivity;
 						}
 					}
 				}
@@ -356,6 +359,7 @@ void PairSmdMpmLin::PointsToGrid() {
 						lgridnodes[node_index].fbody += wf * otherForces;
 						lgridnodes[node_index].mass += wf * particle_mass;
 						lgridnodes[node_index].heat += wf * particle_heat;
+						lgridnodes[node_index].thermal_diffusivity += wf * particle_thermal_diffusivity;
 					}
 				}
 			}
@@ -369,6 +373,7 @@ void PairSmdMpmLin::PointsToGrid() {
 			lgridnodes[icell].imass = 1.0 / lgridnodes[icell].mass;
 			lgridnodes[icell].v *= lgridnodes[icell].imass;
 			lgridnodes[icell].heat *= lgridnodes[icell].imass;
+			lgridnodes[icell].thermal_diffusivity *= lgridnodes[icell].imass;
 		}
 	}
 
@@ -1016,7 +1021,7 @@ void PairSmdMpmLin::MUSL() {
 	CheckSymmetryBC();
 	timeone_SymmetryBC += MPI_Wtime();
 
-	if (thermal_diffusivity > 0.0) {
+	if (do_heat_conduction) {
 		ComputeHeatFluxOnGrid();
 	}
 
@@ -1360,11 +1365,11 @@ void PairSmdMpmLin::allocate() {
 void PairSmdMpmLin::settings(int narg, char **arg) {
 
 // defaults
-	thermal_diffusivity = 0.0;
 	vlimit = -1.0;
 	FLIP_contribution = 0.99;
 	region_flag = 0;
 	flag3d = true;
+	do_heat_conduction = false;
 
 	if (narg < 1) {
 		printf("narg = %d\n", narg);
@@ -1549,14 +1554,10 @@ void PairSmdMpmLin::settings(int narg, char **arg) {
 			}
 			true_deformation = true;
 		} else if (strcmp(arg[iarg], "thermal") == 0) {
-			iarg++;
-			if (iarg == narg) {
-				error->all(FLERR, "expected float following thermal keyword");
-			}
-			thermal_diffusivity = force->numeric(FLERR, arg[iarg]);
 			if (comm->me == 0) {
-				printf("... heat conduction enabled with thermal diffusivity %f\n", thermal_diffusivity);
+				printf("... heat conduction enabled\n");
 			}
+			do_heat_conduction = true;
 		} else {
 			char msg[128];
 			sprintf(msg, "Illegal keyword for pair smd/mpm: %s\n", arg[iarg]);
@@ -1702,9 +1703,9 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 	int *type = atom->type;
 	int i, j, m, jtype;
 
-	double dx = 1 * pbc[0] * domain->xprd;
-	double dy = 1 * pbc[1] * domain->yprd;
-	double dz = 1 * pbc[2] * domain->zprd;
+	double dx = pbc[0] * domain->xprd;
+	double dy = pbc[1] * domain->yprd;
+	double dz = pbc[2] * domain->zprd;
 //printf("dx=%f, dy=%f, dz=%f\n", dx, dy, dz);
 //printf("packing comm\n");
 
@@ -1738,6 +1739,7 @@ int PairSmdMpmLin::pack_forward_comm(int n, int *list, double *buf, int pbc_flag
 			buf[m++] = v[j][2];
 
 			//problem: this comm runs over all particles, not just that type for which this pair style is active
+			// so we only add the PBC shift to those particles which are time-integrated in this pair style
 			if (setflag[jtype][jtype]) {
 				buf[m++] = x[j][0] + dx;
 				buf[m++] = x[j][1] + dy;
@@ -2039,11 +2041,11 @@ void PairSmdMpmLin::ComputeHeatFluxOnGrid() {
 
 // todo: introduce heat conduction coeff
 
-	double factor = thermal_diffusivity * icellsize * icellsize;
 	double totalflux = 0.0;
-	double dxx, dyy, dzz;
+
 
 	if (flag3d) {
+		double dxx, dyy, dzz;
 		for (int ix = 1; ix < grid_nx - 1; ix++) {
 			for (int iy = 1; iy < grid_ny - 1; iy++) {
 				for (int iz = 1; iz < grid_nz - 1; iz++) {
@@ -2077,12 +2079,13 @@ void PairSmdMpmLin::ComputeHeatFluxOnGrid() {
 						}
 
 						totalflux += dxx + dyy + dzz;
-						lgridnodes[icell].dheat_dt = factor * (dxx + dyy + dzz);
+						lgridnodes[icell].dheat_dt = icellsize * icellsize * lgridnodes[icell].thermal_diffusivity * (dxx + dyy + dzz);
 					}
 				}
 			}
 		}
 	} else { // 2d simulation
+		double dxx, dyy;
 		for (int ix = 1; ix < grid_nx - 1; ix++) {
 			for (int iy = 1; iy < grid_ny - 1; iy++) {
 				int icell = ix + iy * grid_nx;
@@ -2106,7 +2109,7 @@ void PairSmdMpmLin::ComputeHeatFluxOnGrid() {
 					}
 
 					totalflux += dxx + dyy;
-					lgridnodes[icell].dheat_dt = factor * (dxx + dyy);
+					lgridnodes[icell].dheat_dt = icellsize * icellsize * lgridnodes[icell].thermal_diffusivity * (dxx + dyy);
 				}
 			}
 		}

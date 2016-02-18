@@ -125,6 +125,19 @@ int SmdMatDB::ReadSectionGeneral(CSimpleIni &ini, const int itype) {
 		return -1;
 	}
 
+	gProps[itype].thermal_conductivity = ini.GetDoubleValue(sectionName.c_str(), "thermal_conductivity",
+	DOUBLE_NOT_FOUND);
+	if (gProps[itype].thermal_conductivity == DOUBLE_NOT_FOUND) {
+		printf("could not read thermal_conductivity for type %d\n", itype);
+		return -1;
+	}
+
+	if (gProps[itype].thermal_conductivity < 0.0) {
+		printf("thermal_conductivity for type %d\n is < 0. What are you thinking?\n\n", itype);
+		return -1;
+	}
+	gProps[itype].thermal_diffusivity = gProps[itype].thermal_conductivity / (gProps[itype].rho0 * gProps[itype].cp);
+
 	// read EOS
 	string eosName = ini.GetValue(sectionName.c_str(), "EOS", STRING_NOT_FOUND);
 	//cout << "EOS is " << eosName << endl;
@@ -488,6 +501,8 @@ void SmdMatDB::PrintData(const int itype) {
 	printf("... reference speed of sound is %f\n", gProps[itype].c0);
 	printf("... reference shear modulus is %f\n", gProps[itype].G0);
 	printf("... heat capacity is %f\n", gProps[itype].cp);
+	printf("... thermal conductivity [energy / (time x length x temperature)] is %g\n", gProps[itype].thermal_conductivity);
+	printf("... thermal diffusivity [length^2 / time] is %g\n", gProps[itype].thermal_diffusivity);
 	printf("\n");
 
 	int eosType = gProps[itype].eosType;
@@ -556,7 +571,7 @@ void SmdMatDB::ComputePressure(const double mu, const double temperature, const 
 		double e_per_unit_volume = 0.0; // energy per unit volume
 		//printf("temp is %f\n", temperature);
 		if (temperature > eosShock_vec[eosIdx].T0) {
-			e_per_unit_volume  = gProps[itype].rho0 * gProps[itype].cp * (temperature - eosShock_vec[eosIdx].T0);
+			e_per_unit_volume = gProps[itype].rho0 * gProps[itype].cp * (temperature - eosShock_vec[eosIdx].T0);
 		}
 		eosShock_vec[eosIdx].ComputePressure(mu, e_per_unit_volume, pressure, K_eff);
 	}

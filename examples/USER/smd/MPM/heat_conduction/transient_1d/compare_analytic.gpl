@@ -1,0 +1,28 @@
+#!/usr/bin/gnuplot
+
+# compare MPM output with analytic solution to diffusion equation
+
+alpha = 0.1 # thermal diffusivity
+time = 1000 # simulation time corresponding to dump.last
+T0 = 100 # initial temperature on RHS
+
+analytic_profile(x) = 0.5 * T0 + 0.5 * T0 * erf(x/sqrt(4.0*alpha*time))
+
+set ylabel "thermal energy per particle"
+set xlabel "x position [m]"
+set key top left
+
+plot [][]'dump.last' u ($1+0.5):2 every ::10 ti "MPM simulation", \
+          analytic_profile(x) ti "analytic solution"
+
+pause -1
+set terminal postscript color enhanced lw 2
+set out "heat_profile.eps"
+replot
+#set table "simu.dat"
+#plot [0:1][0.5:2.5]'dump.last' u 3:6
+
+#set table "analytic.dat"
+#set samples 1000
+#plot [0:1][0.5:2.5] analytic_profile(x)
+#replot

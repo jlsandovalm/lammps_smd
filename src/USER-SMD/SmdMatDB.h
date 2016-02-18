@@ -63,6 +63,7 @@ public:
 			K0 = 0.0;
 			G0 = 0.0;
 			thermal_conductivity = 0.0;
+			thermal_diffusivity = 0.0;
 			strengthName = "NONE";
 			eosName = "NONE";
 			viscName = "NONE";
@@ -73,7 +74,8 @@ public:
 		double cp; // heat capacity
 		double K0;
 		double G0;
-		double thermal_conductivity;
+		double thermal_conductivity; // [W/(m K)]
+		double thermal_diffusivity; // [m^2 / sec]
 		int eosType, strengthType, viscType;
 		int eosTypeIdx, strengthTypeIdx, viscTypeIdx;
 		std::string strengthName, eosName, viscName;

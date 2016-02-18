@@ -121,7 +121,7 @@ private:
 	// enumerate some quantitities and associate these with integer values such that they can be used for lookup in an array structure
 
 	struct Gridnode {
-		double mass, heat, dheat_dt, imass;
+		double mass, heat, dheat_dt, imass, thermal_diffusivity;
 		Vector3d v, fbody, f;
 		bool isVelocityBC;
 		int count;
@@ -149,11 +149,9 @@ private:
 
 	bool corotated;
 	bool true_deformation;
+	bool do_heat_conduction;
 	int iproc;
 	int gimp_offset;
-
-	// user-defined variables
-	double thermal_diffusivity; // heat diffusivity coefficient, set by "thermal" keyword units: [length^2 / time]
 
 };
 

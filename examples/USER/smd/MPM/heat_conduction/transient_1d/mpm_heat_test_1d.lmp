@@ -1,0 +1,102 @@
+####################################################################################################
+#
+# MPM heat test: heat conduction in a long bar with a temperature jump
+# left side of the bar has thermal energy 0
+# right side has thermal energy 100
+#
+####################################################################################################
+
+####################################################################################################
+# MATERIAL PARAMETERS
+####################################################################################################
+variable        rho equal 1000 # mass density
+
+####################################################################################################
+# INITIALIZE LAMMPS
+####################################################################################################
+units		si
+dimension       2
+boundary        f f p
+atom_style      smd
+neigh_modify    once yes
+comm_modify     vel yes
+newton          off
+comm_style      brick
+
+####################################################################################################
+# CREATE SIMULATION BOX
+####################################################################################################
+variable        l0 equal 1.0 # initial particle lattice spacing
+region          box block -50 50 -2 2 -0.1 0.1 units box
+create_box      1 box
+
+####################################################################################################
+# DEFINE BOUNDARY CONDITIONS
+####################################################################################################
+
+####################################################################################################
+# CREATE PARTICLES
+####################################################################################################
+lattice         sq ${l0}
+create_atoms    1 box
+region          left block EDGE 0 EDGE EDGE EDGE EDGE units box
+region          rght block 0 EDGE EDGE EDGE EDGE EDGE units box
+group           left region left
+group           rght region rght
+
+####################################################################################################
+# DISCRETIZATION PARAMETERS
+####################################################################################################
+variable        vol_one equal ${l0}^2 # initial particle volume for 2d simulation
+variable        contact_radius equal ${l0}/2
+set             group all diameter ${l0}
+set             group all smd_contact_radius ${contact_radius}
+set             group all volume  ${vol_one}
+set             group all smd_mass_density ${rho}
+set             group all smd_heat 0.0
+set             group rght smd_heat 100.0
+variable        skin equal ${l0} # Verlet list range
+neighbor        ${skin} bin
+variable        mpm_cellsize equal 1.0*${l0}
+
+####################################################################################################
+# INTERACTION PHYSICS / MATERIAL MODEL
+####################################################################################################
+pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1 2d thermal
+pair_coeff      1 1
+
+####################################################################################################
+# TIME INTEGRATION
+####################################################################################################
+fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+
+####################################################################################################
+# SPECIFY TRAJECTORY OUTPUT
+####################################################################################################
+compute         eint all smd/energy # index 1: elastic energy, 2: heat energ3, 3: temperature
+compute         contact_radius all smd/contact_radius
+
+
+dump            dump_id all custom 20 dump.LAMMPS id type x y &
+                fx fy c_eint[2] c_contact_radius mol &
+                radius
+dump_modify     dump_id first yes
+
+
+####################################################################################################
+# STATUS OUTPUT
+####################################################################################################
+compute         q all reduce sum c_eint[2] # all thermal energy
+thermo          10
+thermo_style    custom step time dt c_q
+
+####################################################################################################
+# RUN SIMULATION
+####################################################################################################
+smd_run_duration 1000
+run 20000
+
+undump          dump_id
+dump            dump_id all custom 20 dump.last x c_eint[2]
+dump_modify     dump_id first yes
+run 0
