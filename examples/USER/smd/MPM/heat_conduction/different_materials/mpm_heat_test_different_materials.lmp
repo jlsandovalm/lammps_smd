@@ -64,6 +64,7 @@ variable        mpm_cellsize equal 1.0*${l0}
 
 ####################################################################################################
 # INTERACTION PHYSICS / MATERIAL MODEL
+# ... thermal conductivity enabled
 ####################################################################################################
 pair_style      smd/mpm_linear ${mpm_cellsize} FLIP 1 2d thermal
 pair_coeff      1 1
@@ -79,12 +80,13 @@ fix             dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment 
 # SPECIFY TRAJECTORY OUTPUT
 ####################################################################################################
 compute         eint all smd/energy # index 1: elastic energy, 2: heat energ3, 3: temperature
+variable        thermal_energy atom c_eint[2]
+variable        temperature atom c_eint[3]
 compute         contact_radius all smd/contact_radius
 
 
-dump            dump_id all custom 20 dump.LAMMPS id type x y &
-                fx fy c_eint[3] c_contact_radius mol &
-                radius
+dump            dump_id all custom 20 dump.LAMMPS id type x y z &
+                c_contact_radius radius v_thermal_energy v_temperature
 dump_modify     dump_id first yes
 
 
@@ -98,5 +100,5 @@ thermo_style    custom step time dt c_q
 ####################################################################################################
 # RUN SIMULATION
 ####################################################################################################
-smd_run_duration 100
-run 2000
+smd_run_duration 100 # run for 100 time units
+run 99999999

@@ -1,13 +1,11 @@
 #!/bin/sh
 
-CC="/usr/bin/clang++-3.5"
-if [ -e "$CC" ]
+if [ -e "/usr/bin/clang++-3.6" ]
 then
-	export OMPI_CXX=$CC
-else
-	echo "$CC"
-	echo "clang does not exist"
-	return 1
+	export OMPI_CXX=/usr/bin/clang++-3.6
+elif [ -e "/usr/bin/clang++-3.5" ]
+then
+	export OMPI_CXX=/usr/bin/clang++-3.5
 fi
 
 make package-update
