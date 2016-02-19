@@ -1496,6 +1496,7 @@ void PairSmdMpmLin::settings(int narg, char **arg) {
 				error->all(FLERR, "expected number following limit_velocity");
 			}
 			vlimit = force->numeric(FLERR, arg[iarg]);
+			vlimitsq = vlimit * vlimit;
 
 			if (comm->me == 0) {
 				printf("... will limit velocities to <= %g\n", vlimit);
