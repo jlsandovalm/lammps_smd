@@ -14,8 +14,9 @@
 #include <Eigen/Eigen>
 #include <sstream>
 
-#define SSTR( x ) dynamic_cast< std::ostringstream & >( \
-        ( std::ostringstream() << std::dec << x ) ).str()
+// #define SSTR( x ) dynamic_cast<std::ostringstream&>( (std::ostringstream() << std::dec << x ) ).str() // Deprecated!
+// #define SSTR( x ) reinterpret_cast<std::ostringstream&>(std::ostringstream{} << std::dec << x).str() // Added by Markus Büttner - EMI
+#define SSTR( x ) reinterpret_cast<std::ostringstream&>(std::ostringstream() << std::dec << x).str()   // Modified by J. Luis Sandoval M.
 #define DOUBLE_NOT_FOUND -999999999999.0
 #define LONG_NOT_FOUND -99999999
 #define STRING_NOT_FOUND "STRING_NOT_FOUND"
