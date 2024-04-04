@@ -1,6 +1,8 @@
 ####################################################################################################
 # 
-# Test of hybrid interaction: peri/ipmb and mpm
+# Hybrid Peridynamics-MPM simulation
+# (smd/peri_ipmb and smd/mpm_linear)
+#
 # A stationary plate is modelled as elastic/perfectly plastic with MPM.
 # A block of a hard elastic material, modelled using the Peridynamic pair style peri/ipmb, impacts this
 # plate. Contact between both solid bodies is handeled via a Hertzian repulsive potential.
