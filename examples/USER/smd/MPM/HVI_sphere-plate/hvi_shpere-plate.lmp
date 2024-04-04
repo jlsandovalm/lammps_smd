@@ -9,8 +9,9 @@
 #
 # Note that the Hertzian contact is frictioneless.
 #
-# unit sytem: You can use any _consistent_ unit system, as these are idealized parameters,
-# think e.g. of GPa / mm / ms
+# Unit sytem: mm, ms, GPa
+# (you can use any _consistent_ unit system)
+# 
 #
 ####################################################################################################
 
