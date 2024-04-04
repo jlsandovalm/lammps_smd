@@ -1,11 +1,12 @@
 ####################################################################################################
 # 
-# MPM-Simulation of a Hyper Velocity Impact (HVI)
+# Test of hybrid interaction: peri/ipmb and mpm
 # A stationary plate is modelled as elastic/perfectly plastic with MPM.
-# A sphere of the same material is modelled also with MPM.
-# Contact between both solid bodies is handeled via a Hertzian repulsive potential.
+# A block of a hard elastic material, modelled using the Peridynamic pair style peri/ipmb, impacts this
+# plate. Contact between both solid bodies is handeled via a Hertzian repulsive potential.
 #
 # Note that MPM material model & parameters are defined in file "materials.ini"
+# Peridynamic pair style however needs material parameter definitions directly in this LAMMPS script.
 #
 # Note that the Hertzian contact is frictioneless.
 #
@@ -49,13 +50,13 @@ lattice 	sc ${l0}
 region		box block  -10 +25  -8 +8  -8 +8  units box
 create_box 	2 box
 
-region		target-plate block  0.3 +1.3  -3 +3  -3 +3  units box	# plate of MPM particles
-create_atoms 	1 region target-plate
-group		target-plate type 1
+region		mpm_particles block  0.3 +1.3  -3 +3  -3 +3  units box	# plate of MPM particles
+create_atoms 	1 region mpm_particles
+group		mpm_particles type 1
 
-region		projectile sphere  0.0  0.0  0.0  0.15  units box	# sphere of MPM particles
-create_atoms 	2 region projectile
-group		projectile type 2
+region		peri_particles sphere  0.0  0.0  0.0  0.15  units box	# block of Peridynamic particles
+create_atoms 	2 region peri_particles
+group		peri_particles type 2
 
 ####################################################################################################
 # DISCRETIZATION PARAMETERS
@@ -65,33 +66,39 @@ variable	skin		equal 1.0*${l0} # Verlet list range
 variable	mpm_cellsize	equal ${l0}
 variable	contact_scale	equal 1.0 # scale factor for contact radius for Hertzian interaction between peri and MPM particles
 variable	cr		equal ${l0}/2 # "contact" radius used by Hertzian potential
+variable	peri_kernel	equal 2.5*${l0} # peridynamic particles need a finite kernel
 
 neighbor	${skin} bin
 set     	group all smd_contact_radius ${cr}
 set 		group all volume ${vol_one}
 set     	group all smd_mass_density ${rho}
-set     	group all smd_heat 0.0
-set 		group all diameter ${cr} # MPM particles make no use of kernel radius
+set     	group mpm_particles smd_heat 0.0
+set 		group mpm_particles diameter ${cr} # MPM particles make no use of kernel radius
+set 		group peri_particles diameter ${peri_kernel} # set SPH kernel radius
 
 ####################################################################################################
 # DEFINE BOUNDARY CONDITIONS
 ####################################################################################################
-velocity	projectile set  5000.0  0.0  0.0  units box
+velocity	peri_particles set  5000.0  0.0  0.0  units box
 
 ####################################################################################################
 # INTERACTION PHYSICS / MATERIAL MODEL
 ####################################################################################################
-pair_style	hybrid/overlay	smd/hertz ${contact_scale} &
-				smd/mpm_linear ${mpm_cellsize} FLIP 0.999
+pair_style	hybrid/overlay	smd/peri_ipmb &
+				smd/hertz ${contact_scale} &
+				smd/mpm_linear ${mpm_cellsize} FLIP 0.99
 # note that mpm pair style must be listed at last position if multiple pair styles are used
 pair_coeff	1 1 smd/mpm_linear
-pair_coeff	2 2 smd/mpm_linear
+pair_coeff	2 2 smd/peri_ipmb ${rho} ${K} ${smax} ${G0} ${visc} ${syield} 0
 pair_coeff	1 2 smd/hertz ${contact_stiffness}
 
 ####################################################################################################
 # TIME INTEGRATION
 ####################################################################################################
 fix		dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
+# --- time integration of MPM particles is handled inside MPM pair style --- 
+fix		nve_peri_fix peri_particles nve # peri particles need to have a time integration fix
+
 
 ####################################################################################################
 # SPECIFY TRAJECTORY OUTPUT
@@ -99,10 +106,10 @@ fix		dtfix all smd/adjust_dt 0.5 # dynamically adjust time increment every step
 variable	dumpFreq	equal 100
 variable	thermoFreq	equal ${dumpFreq}/10
 
-compute		P all smd/plastic_strain
+compute		P mpm_particles smd/plastic_strain
 compute		contact_radius all smd/contact_radius
-compute		S all smd/stress			# S[7] is von Mises stress
-compute		smd_energy all smd/energy		# elastic continuum energy 
+compute		S mpm_particles smd/stress # S[7] is von Mises stress
+compute		smd_energy all smd/energy # elastic continuum energy 
 variable	eela atom c_smd_energy[1]
 variable	heat atom c_smd_energy[2]
 variable	temp atom c_smd_energy[3]
@@ -118,7 +125,7 @@ variable	etot equal pe+ke+c_alleint # total energy of the system
 
 compute		total_heat all reduce sum v_heat
 thermo		${thermoFreq}
-thermo_style	custom step dt time pe ke c_alleint v_etot
+thermo_style	custom step dt time pe ke c_alleint c_total_heat v_etot
 thermo_modify	lost warn
 
 ####################################################################################################
